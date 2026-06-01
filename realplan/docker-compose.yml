@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: realplan-postgres
+
+    environment:
+      POSTGRES_DB: realplan
+      POSTGRES_USER: realplan
+      POSTGRES_PASSWORD: realplan1234
+
+    ports:
+      - "5433:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
