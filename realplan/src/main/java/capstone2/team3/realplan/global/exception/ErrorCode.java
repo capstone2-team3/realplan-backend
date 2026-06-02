@@ -23,6 +23,7 @@ public enum ErrorCode {
 
     // Folder
     FOLDER_NOT_FOUND(HttpStatus.NOT_FOUND, "FOLDER_NOT_FOUND", "폴더를 찾을 수 없습니다."),
+    DEFAULT_FOLDER_NOT_FOUND(HttpStatus.NOT_FOUND, "DEFAULT_FOLDER_NOT_FOUND", "기본 폴더를 찾을 수 없습니다."),
     DUPLICATE_FOLDER_NAME(HttpStatus.CONFLICT, "DUPLICATE_FOLDER_NAME", "이미 존재하는 폴더 이름입니다."),
     DEFAULT_FOLDER_CANNOT_BE_DELETED(HttpStatus.BAD_REQUEST, "DEFAULT_FOLDER_CANNOT_BE_DELETED", "기본 폴더는 삭제할 수 없습니다."),
 
