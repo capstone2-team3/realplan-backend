@@ -140,6 +140,25 @@ public class Task extends BaseEntity {
         }
     }
 
+    // TaskService의 부분 업데이트용 (null이면 기존 값 유지)
+    public void updateInfo(String name, String description, LocalDateTime dueDate,
+                           Importance importance, Difficulty difficulty,
+                           Boolean correctionEnabled, Integer userEstimated) {
+        if (name != null) this.name = name;
+        if (description != null) this.description = description;
+        if (dueDate != null) this.dueDate = dueDate;
+        if (importance != null) this.importance = importance;
+        if (difficulty != null) this.difficulty = difficulty;
+        if (correctionEnabled != null) this.correctionEnabled = correctionEnabled;
+        if (userEstimated != null) {
+            this.userEstimated = userEstimated;
+            if (!this.correctionEnabled) {
+                this.finalEstimated = userEstimated;
+                this.remainingMin = userEstimated - this.totalTime;
+            }
+        }
+    }
+
     // ── Enum ─────────────────────────────────────────
 
     public enum Importance {
