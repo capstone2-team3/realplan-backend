@@ -11,6 +11,7 @@ public enum ErrorCode {
     // Common
     INVALID_INPUT(HttpStatus.BAD_REQUEST, "INVALID_INPUT", "요청 값이 올바르지 않습니다."),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "서버 내부 오류가 발생했습니다."),
+    AI_SERVICE_UNAVAILABLE(HttpStatus.BAD_GATEWAY, "AI_SERVICE_UNAVAILABLE", "AI 서비스 호출에 실패했습니다."),
 
     // Auth
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "인증이 필요합니다."),
@@ -38,7 +39,8 @@ public enum ErrorCode {
     // FocusSession
     SESSION_NOT_FOUND(HttpStatus.NOT_FOUND, "SESSION_NOT_FOUND", "세션을 찾을 수 없습니다."),
     SESSION_ALREADY_ENDED(HttpStatus.BAD_REQUEST, "SESSION_ALREADY_ENDED", "이미 종료된 세션입니다."),
-    SESSION_NOT_ACTIVE(HttpStatus.BAD_REQUEST, "SESSION_NOT_ACTIVE", "활성 상태가 아닌 세션입니다.");
+    SESSION_NOT_ACTIVE(HttpStatus.BAD_REQUEST, "SESSION_NOT_ACTIVE", "활성 상태가 아닌 세션입니다."),
+    SESSION_ALREADY_ACTIVE(HttpStatus.BAD_REQUEST, "SESSION_ALREADY_ACTIVE", "이미 진행 중인 세션이 있습니다.");
 
     private final HttpStatus httpStatus;
     private final String code;
