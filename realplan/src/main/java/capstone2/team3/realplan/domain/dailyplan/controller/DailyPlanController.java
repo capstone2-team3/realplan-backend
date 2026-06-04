@@ -70,6 +70,28 @@ public class DailyPlanController {
                 dailyPlanService.assignTaskToSlot(authUser.getUserId(), planId, slotId, request)));
     }
 
+    @Operation(summary = "태스크 슬롯 직접 배정",
+            description = "3단계-A: 사용자가 선택한 여러 슬롯에 하나의 태스크를 직접 배정")
+    @PostMapping("/{planId}/tasks")
+    public ResponseEntity<ApiResponse<DailyPlanResponse>> assignTaskToSlots(
+            @AuthenticationPrincipal AuthUser authUser,
+            @PathVariable Long planId,
+            @Valid @RequestBody DailyPlanTaskAssignRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                dailyPlanService.assignTaskToSlots(authUser.getUserId(), planId, request)));
+    }
+
+    @Operation(summary = "AI 자동 배치",
+            description = "3단계-B: AI 연동 전에는 fallback 자동 배치로 슬롯에 태스크를 배정합니다.")
+    @PostMapping("/{planId}/tasks/auto")
+    public ResponseEntity<ApiResponse<DailyPlanResponse>> autoAssignTasks(
+            @AuthenticationPrincipal AuthUser authUser,
+            @PathVariable Long planId,
+            @Valid @RequestBody DailyPlanAutoAssignRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                dailyPlanService.autoAssignTasks(authUser.getUserId(), planId, request)));
+    }
+
     @Operation(summary = "슬롯 일괄 배정 (AI 자동배치 결과 적용)",
             description = "3단계-B: AI /schedules/auto-place 결과를 슬롯에 일괄 배정. "
                     + "기존 AI 배정은 초기화 후 새로 적용. "

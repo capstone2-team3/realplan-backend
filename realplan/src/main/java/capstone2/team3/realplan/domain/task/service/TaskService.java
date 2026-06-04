@@ -1,5 +1,7 @@
 package capstone2.team3.realplan.domain.task.service;
 
+import capstone2.team3.realplan.domain.ai.service.TaskAiEstimationService;
+import capstone2.team3.realplan.domain.ai.service.TaskAiCoefficientUpdateService;
 import capstone2.team3.realplan.domain.folder.entity.Folder;
 import capstone2.team3.realplan.domain.folder.repository.FolderRepository;
 import capstone2.team3.realplan.domain.task.dto.TaskCreateRequest;
@@ -28,6 +30,8 @@ public class TaskService {
     private final UserRepository userRepository;
     private final FolderRepository folderRepository;
     private final TaskTypeRepository taskTypeRepository;
+    private final TaskAiEstimationService taskAiEstimationService;
+    private final TaskAiCoefficientUpdateService taskAiCoefficientUpdateService;
 
     // 태스크 목록 조회
     public List<TaskResponse> getTasks(Long userId, Long folderId, String filter, String sort) {
@@ -101,7 +105,9 @@ public class TaskService {
                 .remainingMin(request.getUserEstimated())
                 .build();
 
-        return TaskResponse.from(taskRepository.save(task));
+        Task savedTask = taskRepository.save(task);
+        taskAiEstimationService.estimateAndApply(savedTask);
+        return TaskResponse.from(savedTask);
     }
 
     // 태스크 수정
@@ -127,6 +133,7 @@ public class TaskService {
                 request.getCorrectionEnabled(),
                 request.getUserEstimated()
         );
+        taskAiEstimationService.estimateAndApply(task);
 
         return TaskResponse.from(task);
     }
@@ -142,6 +149,7 @@ public class TaskService {
     @Transactional
     public TaskResponse completeTask(Long userId, Long taskId) {
         Task task = getTaskOrThrow(userId, taskId);
+        taskAiCoefficientUpdateService.updateOnTaskCompleted(task);
         task.complete();
         return TaskResponse.from(task);
     }
