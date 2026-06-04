@@ -69,6 +69,10 @@ public class DailyPlan extends BaseEntity {
         this.availableMinutes = minutes;
     }
 
+    public void updateTotalMinutes(int minutes) {
+        this.totalMinutes = minutes;
+    }
+
     // ── Enum ─────────────────────────────────────────
 
     public enum PlanStatus {

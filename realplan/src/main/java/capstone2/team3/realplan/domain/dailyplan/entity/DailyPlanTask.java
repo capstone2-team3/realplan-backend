@@ -33,8 +33,13 @@ public class DailyPlanTask extends BaseEntity {
     @Column(name = "source_type", nullable = false, length = 10)
     private SourceType sourceType;
 
+    /**
+     * 이 플랜에서 배정된 시간(분)
+     * 슬롯 배정 후 자동 계산: 배정된 슬롯 수 × 30
+     */
     @Column(name = "planned_minutes", nullable = false)
-    private int plannedMinutes;
+    @Builder.Default
+    private int plannedMinutes = 0;
 
     @Column(name = "is_selected", nullable = false)
     @Builder.Default
@@ -42,13 +47,14 @@ public class DailyPlanTask extends BaseEntity {
 
     // ── 비즈니스 메서드 ──────────────────────────────
 
-    public void select() {
-        this.isSelected = true;
-    }
+    public void select() { this.isSelected = true; }
 
-    public void updateDisplayOrder(int order) {
-        this.displayOrder = order;
-    }
+    public void deselect() { this.isSelected = false; }
+
+    public void updateDisplayOrder(int order) { this.displayOrder = order; }
+
+    /** 슬롯 배정 변경 후 자동 재계산용 */
+    public void updatePlannedMinutes(int minutes) { this.plannedMinutes = minutes; }
 
     // ── Enum ─────────────────────────────────────────
 
