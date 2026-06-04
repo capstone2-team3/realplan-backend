@@ -13,6 +13,9 @@ public interface DailyPlanTaskRepository extends JpaRepository<DailyPlanTask, Lo
     Optional<DailyPlanTask> findByDailyPlanTaskIdAndDailyPlanDailyPlanId(
             Long dailyPlanTaskId, Long dailyPlanId);
 
+    Optional<DailyPlanTask> findByDailyPlanTaskIdAndDailyPlanUserUserIdAndTaskTaskId(
+            Long dailyPlanTaskId, Long userId, Long taskId);
+
     // 플랜에 이미 해당 태스크가 있는지 확인 (중복 생성 방지)
     Optional<DailyPlanTask> findByDailyPlanDailyPlanIdAndTaskTaskId(
             Long dailyPlanId, Long taskId);

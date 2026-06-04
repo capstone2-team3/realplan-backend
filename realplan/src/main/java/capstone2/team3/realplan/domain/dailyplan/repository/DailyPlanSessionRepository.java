@@ -4,6 +4,7 @@ import capstone2.team3.realplan.domain.dailyplan.entity.DailyPlanSession;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface DailyPlanSessionRepository extends JpaRepository<DailyPlanSession, Long> {
 
@@ -12,4 +13,7 @@ public interface DailyPlanSessionRepository extends JpaRepository<DailyPlanSessi
 
     // 플랜 태스크 내 세션 전체 삭제 (재분할 시 사용)
     void deleteAllByDailyPlanTaskDailyPlanTaskId(Long dailyPlanTaskId);
+
+    Optional<DailyPlanSession> findByDailyPlanSessionIdAndUserUserIdAndTaskTaskId(
+            Long dailyPlanSessionId, Long userId, Long taskId);
 }
