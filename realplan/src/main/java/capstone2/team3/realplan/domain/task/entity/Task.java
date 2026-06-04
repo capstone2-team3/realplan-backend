@@ -104,6 +104,9 @@ public class Task extends BaseEntity {
     @Column(name = "last_notified_at")
     private LocalDateTime lastNotifiedAt;
 
+    @Column(name = "last_ai_estimated_at")
+    private LocalDateTime lastAiEstimatedAt;
+
     // ── 비즈니스 메서드 ──────────────────────────────
 
     public void complete() {
@@ -134,9 +137,23 @@ public class Task extends BaseEntity {
 
     public void updateAiEstimated(int aiEstimated) {
         this.aiEstimated = aiEstimated;
+        this.lastAiEstimatedAt = LocalDateTime.now();
         if (this.correctionEnabled) {
             this.finalEstimated = aiEstimated;
             this.remainingMin = aiEstimated - this.totalTime;
+        }
+    }
+
+    public void updateAiEstimatedAt(LocalDateTime estimatedAt) {
+        this.lastAiEstimatedAt = estimatedAt;
+    }
+
+    public void applySessionAiEstimate(int updatedAiTotalMinutes, int remainingMinutes) {
+        this.aiEstimated = updatedAiTotalMinutes;
+        this.lastAiEstimatedAt = LocalDateTime.now();
+        if (this.correctionEnabled) {
+            this.finalEstimated = updatedAiTotalMinutes;
+            this.remainingMin = Math.max(0, remainingMinutes);
         }
     }
 
