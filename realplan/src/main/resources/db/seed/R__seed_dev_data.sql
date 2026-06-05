@@ -98,14 +98,14 @@ WHERE EXISTS (SELECT 1 FROM users u WHERE u.user_id = 1)
 -- 3) User-level AI coefficients calculated from the 30 completed tasks.
 --    user_global is mean(log(actual/user_estimated)) - demo_v1.system_global_prior.
 INSERT INTO user_ai_profile (user_id, user_global, completed_count, created_at, updated_at)
-SELECT u.user_id, 0.178460, 30, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP FROM users u WHERE u.user_id = 1;
+SELECT u.user_id, 0.602034, 30, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP FROM users u WHERE u.user_id = 1;
 
 INSERT INTO user_ai_type_residual (user_id, task_type_id, residual, sample_count, created_at, updated_at)
 SELECT u.user_id, tt.task_type_id, v.residual, v.sample_count, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 FROM users u CROSS JOIN (VALUES
     ('TIME_BASED', 0.000000, 0),
-    ('QUANTITY_BASED', 0.026168, 22),
-    ('SATISFACTION_BASED', -0.105337, 8)
+    ('QUANTITY_BASED', 0.050279254777601326, 22),
+    ('SATISFACTION_BASED', -0.10973401572457266, 8)
 ) AS v(type_code, residual, sample_count)
 JOIN task_type tt ON tt.code = v.type_code
 WHERE u.user_id = 1;
@@ -113,25 +113,47 @@ WHERE u.user_id = 1;
 INSERT INTO user_ai_difficulty_residual (user_id, difficulty, residual, sample_count, created_at, updated_at)
 SELECT u.user_id, v.difficulty, v.residual, v.sample_count, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 FROM users u CROSS JOIN (VALUES
-    ('LOW', -0.117922, 6),
-    ('MEDIUM', 0.051581, 14),
-    ('HIGH', 0.011169, 5),
-    ('UNKNOWN', -0.039789, 5)
+    ('UNKNOWN', 0.02342588715787479, 5),
+    ('MEDIUM', 0.06895604797718749, 14),
+    ('LOW', -0.1267506336347278, 6),
+    ('HIGH', 0.038543718318949594, 5)
 ) AS v(difficulty, residual, sample_count)
 WHERE u.user_id = 1;
 
-INSERT INTO user_ai_folder_residual (user_id, folder_id, residual, sample_count, created_at, updated_at)
-SELECT u.user_id, f.folder_id, v.residual, v.sample_count, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-FROM users u CROSS JOIN (VALUES
-    ('기본 폴더', 0.000000, 0),
-    ('알고리즘', 0.064423, 8),
-    ('캡스톤', -0.055593, 5),
-    ('보안', -0.146698, 7),
-    ('운영체제', 0.195899, 3),
-    ('멀코컴', 0.028823, 7)
+INSERT INTO user_ai_folder_residual (
+    user_id,
+    folder_id,
+    residual,
+    sample_count,
+    created_at,
+    updated_at
+)
+SELECT
+    u.user_id,
+    f.folder_id,
+    v.residual,
+    v.sample_count,
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP
+FROM users u
+CROSS JOIN (
+    VALUES
+        ('기본 폴더', 0.000000, 0),
+        ('알고리즘', 0.07634523344065053, 8),
+        ('캡스톤', -0.09299961481062116, 5),
+        ('보안', -0.08740679142255901, 7),
+        ('운영체제', 0.05648301085415421, 3),
+        ('멀코컴', 0.09222913314296027, 7)
 ) AS v(folder_name, residual, sample_count)
-JOIN folder f ON f.user_id = u.user_id AND f.name = v.folder_name
-WHERE u.user_id = 1;
+JOIN folder f
+  ON f.user_id = u.user_id
+ AND f.name = v.folder_name
+WHERE u.user_id = 1
+ON CONFLICT (user_id, folder_id)
+DO UPDATE SET
+    residual = EXCLUDED.residual,
+    sample_count = EXCLUDED.sample_count,
+    updated_at = CURRENT_TIMESTAMP;
 
 -- Legacy aggregate profile table from V1, kept in sync for screens or code paths that still read it.
 INSERT INTO user_task_type_profile (user_id, task_type_id, sample_count, sum_planned_minutes, sum_actual_minutes, error_ratio, bias_correction_factor, last_calculated_at, created_at, updated_at)
