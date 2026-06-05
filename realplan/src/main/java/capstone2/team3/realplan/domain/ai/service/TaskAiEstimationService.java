@@ -76,8 +76,10 @@ public class TaskAiEstimationService {
                 throw e;
             }
             log.warn("AI task estimation skipped. taskId={}, reason={}", task.getTaskId(), e.getErrorCode().getCode());
+            task.updateAiEstimated(task.getUserEstimated());
         } catch (RuntimeException e) {
             log.warn("AI task estimation skipped. taskId={}", task.getTaskId(), e);
+            task.updateAiEstimated(task.getUserEstimated());
         }
     }
 

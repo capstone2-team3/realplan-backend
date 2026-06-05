@@ -6,7 +6,6 @@ import java.util.List;
 
 public record AiTaskClassifyRequest(
         String name,
-        String memo,
         @JsonProperty("user_history")
         List<HistoryItem> userHistory
 ) {
