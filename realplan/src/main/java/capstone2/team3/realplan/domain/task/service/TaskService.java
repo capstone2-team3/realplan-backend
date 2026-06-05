@@ -1,9 +1,14 @@
 package capstone2.team3.realplan.domain.task.service;
 
+import capstone2.team3.realplan.domain.ai.client.AiClient;
+import capstone2.team3.realplan.domain.ai.dto.AiTaskClassifyRequest;
+import capstone2.team3.realplan.domain.ai.dto.AiTaskClassifyResponse;
 import capstone2.team3.realplan.domain.ai.service.TaskAiEstimationService;
 import capstone2.team3.realplan.domain.ai.service.TaskAiCoefficientUpdateService;
 import capstone2.team3.realplan.domain.folder.entity.Folder;
 import capstone2.team3.realplan.domain.folder.repository.FolderRepository;
+import capstone2.team3.realplan.domain.task.dto.TaskClassifyRequest;
+import capstone2.team3.realplan.domain.task.dto.TaskClassifyResponse;
 import capstone2.team3.realplan.domain.task.dto.TaskCreateRequest;
 import capstone2.team3.realplan.domain.task.dto.TaskResponse;
 import capstone2.team3.realplan.domain.task.dto.TaskUpdateRequest;
@@ -16,6 +21,7 @@ import capstone2.team3.realplan.domain.user.repository.UserRepository;
 import capstone2.team3.realplan.global.exception.BusinessException;
 import capstone2.team3.realplan.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,10 +32,13 @@ import java.util.List;
 @Transactional(readOnly = true)
 public class TaskService {
 
+    private static final int CLASSIFY_HISTORY_LIMIT = 50;
+
     private final TaskRepository taskRepository;
     private final UserRepository userRepository;
     private final FolderRepository folderRepository;
     private final TaskTypeRepository taskTypeRepository;
+    private final AiClient aiClient;
     private final TaskAiEstimationService taskAiEstimationService;
     private final TaskAiCoefficientUpdateService taskAiCoefficientUpdateService;
 
@@ -78,9 +87,22 @@ public class TaskService {
         return TaskResponse.from(task);
     }
 
+    // 태스크 유형 추천. DB 저장 없이 AI 분류 결과만 반환한다.
+    public TaskClassifyResponse classifyTask(Long userId, TaskClassifyRequest request) {
+        List<AiTaskClassifyRequest.HistoryItem> userHistory = resolveClassifyHistory(userId, request);
+        AiTaskClassifyResponse response = aiClient.classifyTask(new AiTaskClassifyRequest(
+                request.name(),
+                userHistory
+        ));
+        TaskType taskType = taskTypeRepository.findByCode(response.taskType())
+                .orElseThrow(() -> new BusinessException(ErrorCode.TASK_TYPE_NOT_FOUND));
+        return TaskClassifyResponse.of(response, taskType);
+    }
+
     // 태스크 생성
     @Transactional
     public TaskResponse createTask(Long userId, TaskCreateRequest request) {
+        validateEstimatedMinutes(request.getUserEstimated());
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
 
@@ -114,6 +136,9 @@ public class TaskService {
     @Transactional
     public TaskResponse updateTask(Long userId, Long taskId, TaskUpdateRequest request) {
         Task task = getTaskOrThrow(userId, taskId);
+        if (request.getUserEstimated() != null) {
+            validateEstimatedMinutes(request.getUserEstimated());
+        }
 
         // 폴더 변경
         if (request.getFolderId() != null) {
@@ -159,5 +184,32 @@ public class TaskService {
     private Task getTaskOrThrow(Long userId, Long taskId) {
         return taskRepository.findByTaskIdAndUserUserId(taskId, userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.TASK_NOT_FOUND));
+    }
+
+    private void validateEstimatedMinutes(Integer estimatedMinutes) {
+        if (estimatedMinutes == null || estimatedMinutes <= 0) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT);
+        }
+    }
+
+    private List<AiTaskClassifyRequest.HistoryItem> resolveClassifyHistory(
+            Long userId,
+            TaskClassifyRequest request
+    ) {
+        if (request.userHistory() != null) {
+            return request.userHistory().stream()
+                    .map(item -> new AiTaskClassifyRequest.HistoryItem(item.name(), item.taskType()))
+                    .toList();
+        }
+
+        return taskRepository.findAllByUserUserIdOrderByCreatedAtDesc(
+                        userId,
+                        PageRequest.of(0, CLASSIFY_HISTORY_LIMIT)
+                ).stream()
+                .map(task -> new AiTaskClassifyRequest.HistoryItem(
+                        task.getName(),
+                        task.getTaskType().getCode()
+                ))
+                .toList();
     }
 }

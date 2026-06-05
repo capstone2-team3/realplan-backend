@@ -1,5 +1,7 @@
 package capstone2.team3.realplan.domain.task.controller;
 
+import capstone2.team3.realplan.domain.task.dto.TaskClassifyRequest;
+import capstone2.team3.realplan.domain.task.dto.TaskClassifyResponse;
 import capstone2.team3.realplan.domain.task.dto.TaskCreateRequest;
 import capstone2.team3.realplan.domain.task.dto.TaskResponse;
 import capstone2.team3.realplan.domain.task.dto.TaskUpdateRequest;
@@ -44,6 +46,14 @@ public class TaskController {
         return ResponseEntity.ok(ApiResponse.ok(taskService.getTask(authUser.getUserId(), taskId)));
     }
 
+    @Operation(summary = "태스크 유형 추천", description = "태스크 이름 기반 유형 추천. DB 저장 없이 추천 결과만 반환합니다.")
+    @PostMapping("/classify")
+    public ResponseEntity<ApiResponse<TaskClassifyResponse>> classifyTask(
+            @AuthenticationPrincipal AuthUser authUser,
+            @Valid @RequestBody TaskClassifyRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok(taskService.classifyTask(authUser.getUserId(), request)));
+    }
+
     @Operation(summary = "태스크 생성")
     @PostMapping
     public ResponseEntity<ApiResponse<TaskResponse>> createTask(
@@ -59,7 +69,7 @@ public class TaskController {
     public ResponseEntity<ApiResponse<TaskResponse>> updateTask(
             @AuthenticationPrincipal AuthUser authUser,
             @PathVariable Long taskId,
-            @RequestBody TaskUpdateRequest request) {
+            @Valid @RequestBody TaskUpdateRequest request) {
         return ResponseEntity.ok(ApiResponse.ok(taskService.updateTask(authUser.getUserId(), taskId, request)));
     }
 

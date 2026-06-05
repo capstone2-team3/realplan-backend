@@ -1,6 +1,7 @@
 package capstone2.team3.realplan.domain.task.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.Min;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
@@ -33,5 +34,6 @@ public class TaskUpdateRequest {
     private Boolean correctionEnabled;
 
     @Schema(example = "90")
+    @Min(value = 1, message = "예상 소요 시간은 1분 이상이어야 합니다.")
     private Integer userEstimated;
 }
