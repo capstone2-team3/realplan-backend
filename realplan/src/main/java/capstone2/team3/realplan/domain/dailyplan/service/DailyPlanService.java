@@ -239,15 +239,29 @@ public class DailyPlanService {
         ));
 
         Set<Integer> assignedSlotIndexes = new HashSet<>();
+        Map<Long, Integer> maxSlotCountByTaskId = new HashMap<>();
+        Map<Long, Integer> assignedSlotCountByTaskId = new HashMap<>();
+        for (Task task : tasks) {
+            maxSlotCountByTaskId.put(task.getTaskId(), resolveTargetSlotCount(task));
+        }
+        Map<Long, Integer> nextBlockOrderBySessionId = new HashMap<>();
         for (AiScheduleAutoPlaceResponse.ScheduleBlock block : autoPlaceResponse.scheduleBlocks()) {
             DailyPlanSession session = sessions.stream()
                     .filter(candidate -> candidate.getDailyPlanSessionId().equals(block.dailyPlanSessionId()))
                     .findFirst()
                     .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_INPUT));
             DailyPlanTask planTask = session.getDailyPlanTask();
+            Long taskId = planTask.getTask().getTaskId();
+            int maxSlotCount = maxSlotCountByTaskId.getOrDefault(taskId, Integer.MAX_VALUE);
+            int assignedSlotCount = assignedSlotCountByTaskId.getOrDefault(taskId, 0);
 
             List<DailyPlanSlot> assignedSlots = new ArrayList<>();
             for (Integer slotIndex : validateSlots(block.slotIndexes())) {
+                if (assignedSlotCount >= maxSlotCount) {
+                    log.warn("AI schedule block exceeds task target minutes. taskId={}, maxSlots={}, ignoredSlotIndex={}",
+                            taskId, maxSlotCount, slotIndex);
+                    continue;
+                }
                 if (!assignedSlotIndexes.add(slotIndex)) {
                     throw new BusinessException(ErrorCode.INVALID_INPUT);
                 }
@@ -256,12 +270,16 @@ public class DailyPlanService {
                         .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_INPUT));
                 slot.assignTask(planTask);
                 assignedSlots.add(slot);
+                assignedSlotCount++;
             }
             if (assignedSlots.isEmpty()) {
-                throw new BusinessException(ErrorCode.INVALID_INPUT);
+                continue;
             }
+            assignedSlotCountByTaskId.put(taskId, assignedSlotCount);
             session.markScheduled();
-            saveFallbackSessionBlocks(session, assignedSlots);
+            int nextBlockOrder = nextBlockOrderBySessionId.getOrDefault(session.getDailyPlanSessionId(), 1);
+            int savedBlockCount = saveSessionBlocks(session, assignedSlots, nextBlockOrder);
+            nextBlockOrderBySessionId.put(session.getDailyPlanSessionId(), nextBlockOrder + savedBlockCount);
         }
 
         for (AiScheduleAutoPlaceResponse.UnscheduledSession unscheduled : autoPlaceResponse.unscheduledSessions()) {
@@ -447,6 +465,10 @@ public class DailyPlanService {
         return 30;
     }
 
+    private int resolveTargetSlotCount(Task task) {
+        return Math.max(1, (int) Math.ceil(resolveTargetMinutes(task) / 30.0));
+    }
+
     private List<AiTaskRecommendRequest.TimeBandFocusScore> defaultTimeBandFocusScores() {
         return List.of(
                 new AiTaskRecommendRequest.TimeBandFocusScore("06-12", 85),
@@ -603,13 +625,18 @@ public class DailyPlanService {
     }
 
     private void saveFallbackSessionBlocks(DailyPlanSession session, List<DailyPlanSlot> slots) {
+        saveSessionBlocks(session, slots, 1);
+    }
+
+    private int saveSessionBlocks(DailyPlanSession session, List<DailyPlanSlot> slots, int startBlockOrder) {
         List<DailyPlanSlot> sortedSlots = slots.stream()
                 .sorted(Comparator.comparingInt(DailyPlanSlot::getSlotIndex))
                 .toList();
         if (sortedSlots.isEmpty()) {
-            return;
+            return 0;
         }
-        int blockOrder = 1;
+        int blockOrder = startBlockOrder;
+        int savedBlockCount = 0;
         int blockStartIndex = sortedSlots.get(0).getSlotIndex();
         int previousIndex = blockStartIndex;
 
@@ -624,6 +651,7 @@ public class DailyPlanService {
                         .endTime(slotIndexToTime(previousIndex + 1))
                         .durationMinutes((previousIndex - blockStartIndex + 1) * 30)
                         .build());
+                savedBlockCount++;
                 if (i < sortedSlots.size()) {
                     blockStartIndex = sortedSlots.get(i).getSlotIndex();
                 }
@@ -632,6 +660,7 @@ public class DailyPlanService {
                 previousIndex = sortedSlots.get(i).getSlotIndex();
             }
         }
+        return savedBlockCount;
     }
 
     private DailyPlanSession.RequiredFocusLevel resolveRequiredFocusLevel(Task task) {
