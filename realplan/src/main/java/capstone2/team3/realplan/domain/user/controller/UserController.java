@@ -33,7 +33,7 @@ public class UserController {
         return ResponseEntity.ok(ApiResponse.ok(userService.getMyProfile(authUser.getUserId())));
     }
 
-    @Operation(summary = "내 프로필 수정", description = "nickname, email을 수정합니다.")
+    @Operation(summary = "내 프로필 수정", description = "nickname, password를 수정합니다.")
     @PatchMapping("/me")
     public ResponseEntity<ApiResponse<UserProfileResponse>> updateMyProfile(
             @AuthenticationPrincipal AuthUser authUser,

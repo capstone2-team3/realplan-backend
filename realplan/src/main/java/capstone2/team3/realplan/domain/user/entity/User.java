@@ -31,12 +31,12 @@ public class User extends BaseEntity {
     @Column(name = "last_login_at")
     private LocalDateTime lastLoginAt;
 
-    public void updateProfile(String nickname, String email) {
+    public void updateProfile(String nickname, String passwordHash) {
         if (nickname != null) {
             this.nickname = nickname;
         }
-        if (email != null) {
-            this.email = email;
+        if (passwordHash != null) {
+            this.passwordHash = passwordHash;
         }
     }
 

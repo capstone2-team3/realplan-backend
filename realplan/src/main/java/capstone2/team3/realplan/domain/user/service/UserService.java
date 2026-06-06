@@ -11,6 +11,7 @@ import capstone2.team3.realplan.global.exception.BusinessException;
 import capstone2.team3.realplan.global.exception.ErrorCode;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,6 +24,7 @@ public class UserService {
     private final FolderRepository folderRepository;
     private final RefreshTokenRepository refreshTokenRepository;
     private final EntityManager entityManager;
+    private final PasswordEncoder passwordEncoder;
 
     public UserProfileResponse getMyProfile(Long userId) {
         return UserProfileResponse.from(getUserOrThrow(userId));
@@ -32,13 +34,8 @@ public class UserService {
     public UserProfileResponse updateMyProfile(Long userId, UserProfileUpdateRequest request) {
         User user = getUserOrThrow(userId);
 
-        if (request.getEmail() != null
-                && !request.getEmail().equals(user.getEmail())
-                && userRepository.existsByEmailAndUserIdNot(request.getEmail(), userId)) {
-            throw new BusinessException(ErrorCode.DUPLICATE_EMAIL);
-        }
-
-        user.updateProfile(request.getNickname(), request.getEmail());
+        String passwordHash = request.getPassword() == null ? null : passwordEncoder.encode(request.getPassword());
+        user.updateProfile(request.getNickname(), passwordHash);
         return UserProfileResponse.from(user);
     }
 
