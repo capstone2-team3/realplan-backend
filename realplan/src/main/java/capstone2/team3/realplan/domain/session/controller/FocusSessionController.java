@@ -67,6 +67,16 @@ public class FocusSessionController {
                 focusSessionService.resumeSession(authUser.getUserId(), sessionId)));
     }
 
+    @Operation(summary = "세션 이탈 처리",
+            description = "ACTIVE/PAUSED → ABANDONED. 열려 있는 일시정지 이벤트는 닫고 태스크 통계는 갱신하지 않습니다.")
+    @PatchMapping("/api/sessions/{sessionId}/abandon")
+    public ResponseEntity<ApiResponse<SessionResponse>> abandonSession(
+            @AuthenticationPrincipal AuthUser authUser,
+            @PathVariable Long sessionId) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                focusSessionService.abandonSession(authUser.getUserId(), sessionId)));
+    }
+
     @Operation(summary = "세션 종료 + 피드백 저장",
             description = "세션 종료 후 피드백 저장. 일시정지 시간 제외한 실제 소요 시간 계산. "
                     + "태스크 progressPercent, totalTime 업데이트. "

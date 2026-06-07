@@ -166,6 +166,28 @@ public class FocusSessionService {
         return buildResponse(session);
     }
 
+    // ── 세션 이탈 처리 ────────────────────────────────
+
+    /**
+     * 세션 이탈 처리
+     * ACTIVE/PAUSED 세션을 ABANDONED로 변경한다.
+     * 피드백이 없는 비정상 이탈이므로 태스크 진행률, 누적 시간, AI 통계는 갱신하지 않는다.
+     */
+    @Transactional
+    public SessionResponse abandonSession(Long userId, Long sessionId) {
+        FocusSession session = getSessionOrThrow(userId, sessionId);
+
+        if (session.getSessionStatus() != FocusSession.SessionStatus.ACTIVE
+                && session.getSessionStatus() != FocusSession.SessionStatus.PAUSED) {
+            throw new BusinessException(ErrorCode.SESSION_ALREADY_ENDED);
+        }
+
+        closeOpenPauseEvent(session.getSessionId());
+        session.abandon();
+
+        return buildResponse(session);
+    }
+
     // ── 세션 종료 ─────────────────────────────────────
 
     /**
