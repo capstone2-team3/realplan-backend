@@ -15,6 +15,9 @@ public class TaskUpdateRequest {
     @Schema(example = "2")
     private Long folderId;
 
+    @Schema(example = "2")
+    private Long taskTypeId;
+
     @Schema(example = "OS 챕터 7 문제 풀기")
     private String name;
 

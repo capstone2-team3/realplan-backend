@@ -147,6 +147,12 @@ public class TaskService {
             task.updateFolder(newFolder);
         }
 
+        if (request.getTaskTypeId() != null) {
+            TaskType newTaskType = taskTypeRepository.findById(request.getTaskTypeId())
+                    .orElseThrow(() -> new BusinessException(ErrorCode.TASK_TYPE_NOT_FOUND));
+            task.updateTaskType(newTaskType);
+        }
+
         // 나머지 필드는 리플렉션 없이 직접 처리
         // Task Entity에 updateInfo 메서드 추가 방식으로 처리
         task.updateInfo(

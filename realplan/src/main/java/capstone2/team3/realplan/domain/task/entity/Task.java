@@ -131,6 +131,10 @@ public class Task extends BaseEntity {
         this.folder = folder;
     }
 
+    public void updateTaskType(TaskType taskType) {
+        this.taskType = taskType;
+    }
+
     public void updateLastNotifiedAt(LocalDateTime notifiedAt) {
         this.lastNotifiedAt = notifiedAt;
     }
