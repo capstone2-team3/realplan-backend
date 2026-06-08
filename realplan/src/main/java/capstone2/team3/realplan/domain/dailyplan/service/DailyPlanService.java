@@ -88,7 +88,7 @@ public class DailyPlanService {
      */
     public RecommendResponse getRecommendations(Long userId, Long planId) {
         DailyPlan plan = getPlanOrThrow(userId, planId);
-        List<Task> candidates = taskRepository.findAllByUserUserIdOrderByCreatedAtDesc(userId)
+        List<Task> candidates = taskRepository.findAllByUserUserIdAndDeletedAtIsNullOrderByCreatedAtDesc(userId)
                 .stream()
                 .filter(t -> t.getStatus() != Task.Status.COMPLETED)
                 .filter(t -> t.getRemainingMin() == null || t.getRemainingMin() > 0)
@@ -398,7 +398,7 @@ public class DailyPlanService {
      */
     private DailyPlanTask getOrCreatePlanTask(DailyPlan plan, User user, Long taskId,
                                               DailyPlanTask.SourceType sourceType) {
-        Task task = taskRepository.findByTaskIdAndUserUserId(taskId, user.getUserId())
+        Task task = taskRepository.findByTaskIdAndUserUserIdAndDeletedAtIsNull(taskId, user.getUserId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.TASK_NOT_FOUND));
 
         return dailyPlanTaskRepository
@@ -429,14 +429,14 @@ public class DailyPlanService {
         if (request.getTaskIds() != null && !request.getTaskIds().isEmpty()) {
             return request.getTaskIds().stream()
                     .distinct()
-                    .map(taskId -> taskRepository.findByTaskIdAndUserUserId(taskId, userId)
+                    .map(taskId -> taskRepository.findByTaskIdAndUserUserIdAndDeletedAtIsNull(taskId, userId)
                             .orElseThrow(() -> new BusinessException(ErrorCode.TASK_NOT_FOUND)))
                     .filter(task -> task.getStatus() != Task.Status.COMPLETED)
                     .toList();
         }
 
         int maxTasks = request.getMaxTasks() != null ? request.getMaxTasks() : 4;
-        return taskRepository.findAllByUserUserIdOrderByCreatedAtDesc(userId)
+        return taskRepository.findAllByUserUserIdAndDeletedAtIsNullOrderByCreatedAtDesc(userId)
                 .stream()
                 .filter(task -> task.getStatus() != Task.Status.COMPLETED)
                 .filter(task -> resolveTargetMinutes(task) > 0)

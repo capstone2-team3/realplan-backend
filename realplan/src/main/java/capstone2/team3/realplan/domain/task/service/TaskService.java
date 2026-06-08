@@ -50,9 +50,9 @@ public class TaskService {
             // 폴더 소유자 검증
             folderRepository.findByFolderIdAndUserUserId(folderId, userId)
                     .orElseThrow(() -> new BusinessException(ErrorCode.FOLDER_NOT_FOUND));
-            tasks = taskRepository.findAllByFolderFolderId(folderId);
+            tasks = taskRepository.findAllByFolderFolderIdAndDeletedAtIsNull(folderId);
         } else {
-            tasks = taskRepository.findAllByUserUserIdOrderByCreatedAtDesc(userId);
+            tasks = taskRepository.findAllByUserUserIdAndDeletedAtIsNullOrderByCreatedAtDesc(userId);
         }
 
         // 필터
@@ -173,7 +173,7 @@ public class TaskService {
     @Transactional
     public void deleteTask(Long userId, Long taskId) {
         Task task = getTaskOrThrow(userId, taskId);
-        taskRepository.delete(task);
+        task.softDelete();
     }
 
     // 태스크 완료 처리
@@ -188,7 +188,7 @@ public class TaskService {
     // ── 내부 헬퍼 ────────────────────────────────────
 
     private Task getTaskOrThrow(Long userId, Long taskId) {
-        return taskRepository.findByTaskIdAndUserUserId(taskId, userId)
+        return taskRepository.findByTaskIdAndUserUserIdAndDeletedAtIsNull(taskId, userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.TASK_NOT_FOUND));
     }
 
@@ -208,7 +208,7 @@ public class TaskService {
                     .toList();
         }
 
-        return taskRepository.findAllByUserUserIdOrderByCreatedAtDesc(
+        return taskRepository.findAllByUserUserIdAndDeletedAtIsNullOrderByCreatedAtDesc(
                         userId,
                         PageRequest.of(0, CLASSIFY_HISTORY_LIMIT)
                 ).stream()

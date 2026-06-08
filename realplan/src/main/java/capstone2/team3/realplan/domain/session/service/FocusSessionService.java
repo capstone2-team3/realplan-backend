@@ -49,7 +49,7 @@ public class FocusSessionService {
      * 태스크 상세 화면에서 학습 기록 목록 표시용
      */
     public List<SessionResponse> getSessions(Long userId, Long taskId) {
-        taskRepository.findByTaskIdAndUserUserId(taskId, userId)
+        taskRepository.findByTaskIdAndUserUserIdAndDeletedAtIsNull(taskId, userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.TASK_NOT_FOUND));
 
         return focusSessionRepository.findAllByTaskTaskIdOrderByStartedAtDesc(taskId)
@@ -72,7 +72,7 @@ public class FocusSessionService {
     public SessionResponse startSession(Long userId, SessionStartRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
-        Task task = taskRepository.findByTaskIdAndUserUserId(request.getTaskId(), userId)
+        Task task = taskRepository.findByTaskIdAndUserUserIdAndDeletedAtIsNull(request.getTaskId(), userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.TASK_NOT_FOUND));
 
         // 사용자는 한 번에 하나의 태스크만 수행할 수 있으므로 기존 진행 세션은 자동 종료
@@ -250,7 +250,7 @@ public class FocusSessionService {
     public SessionResponse addManualSession(Long userId, ManualSessionRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
-        Task task = taskRepository.findByTaskIdAndUserUserId(request.getTaskId(), userId)
+        Task task = taskRepository.findByTaskIdAndUserUserIdAndDeletedAtIsNull(request.getTaskId(), userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.TASK_NOT_FOUND));
 
         // 시작/종료 시각 검증

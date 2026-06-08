@@ -87,7 +87,7 @@ public class FolderService {
         Folder defaultFolder = folderRepository.findByUserUserIdAndIsDefaultTrue(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DEFAULT_FOLDER_NOT_FOUND));
 
-        taskRepository.findAllByFolderFolderId(folderId)
+        taskRepository.findAllByFolderFolderIdAndDeletedAtIsNull(folderId)
                 .forEach(task -> task.updateFolder(defaultFolder));
 
         folderRepository.delete(folder);

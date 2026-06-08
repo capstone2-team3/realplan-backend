@@ -100,6 +100,9 @@ public class Task extends BaseEntity {
     @Column(name = "completed_at")
     private LocalDateTime completedAt;
 
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
     // 프런트 Task.lastNotifiedAt 에 대응
     @Column(name = "last_notified_at")
     private LocalDateTime lastNotifiedAt;
@@ -114,6 +117,14 @@ public class Task extends BaseEntity {
         this.completedAt = LocalDateTime.now();
         this.progressPercent = 100;
         this.remainingMin = 0;
+    }
+
+    public void softDelete() {
+        this.deletedAt = LocalDateTime.now();
+    }
+
+    public boolean isDeleted() {
+        return this.deletedAt != null;
     }
 
     public void updateProgress(int progressPercent, int addedMinutes) {

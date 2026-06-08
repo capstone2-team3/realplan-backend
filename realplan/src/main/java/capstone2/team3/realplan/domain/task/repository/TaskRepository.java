@@ -10,13 +10,13 @@ import java.time.LocalDateTime;
 
 public interface TaskRepository extends JpaRepository<Task, Long> {
 
-    List<Task> findAllByFolderFolderId(Long folderId);
+    List<Task> findAllByFolderFolderIdAndDeletedAtIsNull(Long folderId);
 
-    List<Task> findAllByUserUserIdOrderByCreatedAtDesc(Long userId);
+    List<Task> findAllByUserUserIdAndDeletedAtIsNullOrderByCreatedAtDesc(Long userId);
 
-    List<Task> findAllByUserUserIdOrderByCreatedAtDesc(Long userId, Pageable pageable);
+    List<Task> findAllByUserUserIdAndDeletedAtIsNullOrderByCreatedAtDesc(Long userId, Pageable pageable);
 
-    Optional<Task> findByTaskIdAndUserUserId(Long taskId, Long userId);
+    Optional<Task> findByTaskIdAndUserUserIdAndDeletedAtIsNull(Long taskId, Long userId);
 
     long countByUserUserIdAndCompletedAtGreaterThanEqualAndCompletedAtLessThan(
             Long userId, LocalDateTime start, LocalDateTime end);
