@@ -98,14 +98,14 @@ WHERE EXISTS (SELECT 1 FROM users u WHERE u.user_id = 1)
 -- 3) User-level AI coefficients calculated from the 30 completed tasks.
 --    user_global is mean(log(actual/user_estimated)) - demo_v1.system_global_prior.
 INSERT INTO user_ai_profile (user_id, user_global, completed_count, created_at, updated_at)
-SELECT u.user_id, 0.602034, 30, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP FROM users u WHERE u.user_id = 1;
+SELECT u.user_id, 0.6056, 30, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP FROM users u WHERE u.user_id = 1;
 
 INSERT INTO user_ai_type_residual (user_id, task_type_id, residual, sample_count, created_at, updated_at)
 SELECT u.user_id, tt.task_type_id, v.residual, v.sample_count, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 FROM users u CROSS JOIN (VALUES
     ('TIME_BASED', 0.000000, 0),
-    ('QUANTITY_BASED', 0.050279254777601326, 22),
-    ('SATISFACTION_BASED', -0.10973401572457266, 8)
+    ('QUANTITY_BASED', 0.0485, 22),
+    ('SATISFACTION_BASED', -0.1138, 8)
 ) AS v(type_code, residual, sample_count)
 JOIN task_type tt ON tt.code = v.type_code
 WHERE u.user_id = 1;
@@ -113,10 +113,10 @@ WHERE u.user_id = 1;
 INSERT INTO user_ai_difficulty_residual (user_id, difficulty, residual, sample_count, created_at, updated_at)
 SELECT u.user_id, v.difficulty, v.residual, v.sample_count, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 FROM users u CROSS JOIN (VALUES
-    ('UNKNOWN', 0.02342588715787479, 5),
-    ('MEDIUM', 0.06895604797718749, 14),
-    ('LOW', -0.1267506336347278, 6),
-    ('HIGH', 0.038543718318949594, 5)
+    ('UNKNOWN', 0.0238, 5),
+    ('MEDIUM', 0.0726, 14),
+    ('LOW', -0.1257, 6),
+    ('HIGH', 0.0327, 5)
 ) AS v(difficulty, residual, sample_count)
 WHERE u.user_id = 1;
 
@@ -139,11 +139,11 @@ FROM users u
 CROSS JOIN (
     VALUES
         ('기본 폴더', 0.000000, 0),
-        ('알고리즘', 0.07634523344065053, 8),
-        ('캡스톤', -0.09299961481062116, 5),
-        ('보안', -0.08740679142255901, 7),
-        ('운영체제', 0.05648301085415421, 3),
-        ('멀코컴', 0.09222913314296027, 7)
+        ('알고리즘', 0.0724, 8),
+        ('캡스톤', -0.0904, 5),
+        ('보안', -0.0891, 7),
+        ('운영체제', 0.0512, 3),
+        ('멀코컴', 0.1050, 7)
 ) AS v(folder_name, residual, sample_count)
 JOIN folder f
   ON f.user_id = u.user_id
