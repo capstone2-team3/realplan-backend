@@ -501,7 +501,7 @@ WITH rolling_task_seed AS (
         v.task_order,
         v.folder_name,
         v.type_code,
-        format('데모 - %s - %s', to_char(ps.plan_date, 'MM/DD'), v.name_suffix) AS task_name,
+        format('%s %s', to_char(ps.plan_date, 'MM/DD'), v.name_suffix) AS task_name,
         v.importance,
         v.difficulty,
         v.user_estimated,
@@ -533,7 +533,7 @@ WITH rolling_task_seed AS (
     CROSS JOIN (
         VALUES
             (1, '알고리즘', 'QUANTITY_BASED', '알고리즘 실전 문제 풀이', 'HIGH', 'MEDIUM', 90, 120, 85, TIME '07:50', TIME '10:35'),
-            (2, '캡스톤', 'SATISFACTION_BASED', '캡스톤 발표/보고서 정리', 'MEDIUM', 'HIGH', 75, 110, 65, TIME '08:05', TIME '16:20')
+            (2, '캡스톤', 'SATISFACTION_BASED', '캡스톤 발표/보고서 정리', 'MEDIUM', 'LOW', 75, 110, 65, TIME '08:05', TIME '16:20')
     ) AS v(task_order, folder_name, type_code, name_suffix, importance, difficulty, user_estimated, ai_estimated, actual_minutes, created_time, completed_time)
 )
 INSERT INTO task (
@@ -598,7 +598,7 @@ WITH plan_task_seed AS (
     FROM daily_plan dp
     JOIN task t
       ON t.user_id = dp.user_id
-     AND t.name LIKE format('데모 - %s - %%', to_char(dp.plan_date, 'MM/DD'))
+     AND t.name LIKE format('%s %%', to_char(dp.plan_date, 'MM/DD'))
     WHERE dp.user_id = 1
       AND dp.plan_date BETWEEN CURRENT_DATE - INTERVAL '20 days' AND CURRENT_DATE
 )
@@ -626,10 +626,10 @@ WITH plan_slots AS (
         VALUES
             (6, 1),
             (7, 1),
-            (18, 2),
-            (19, 2),
-            (20, NULL),
-            (21, NULL)
+            (14, NULL),
+            (15, NULL),
+            (26, 2),
+            (27, 2)
     ) AS slot(slot_index, display_order)
     WHERE dp.user_id = 1
       AND dp.plan_date BETWEEN CURRENT_DATE - INTERVAL '20 days' AND CURRENT_DATE
@@ -702,14 +702,14 @@ WITH block_seed AS (
         CASE
             WHEN dpt.display_order = 1 AND block.block_order = 1 THEN '09:00'
             WHEN dpt.display_order = 1 AND block.block_order = 2 THEN '09:30'
-            WHEN dpt.display_order = 2 AND block.block_order = 1 THEN '15:00'
-            ELSE '15:30'
+            WHEN dpt.display_order = 2 AND block.block_order = 1 THEN '19:00'
+            ELSE '19:30'
         END AS start_time,
         CASE
             WHEN dpt.display_order = 1 AND block.block_order = 1 THEN '09:30'
             WHEN dpt.display_order = 1 AND block.block_order = 2 THEN '10:00'
-            WHEN dpt.display_order = 2 AND block.block_order = 1 THEN '15:30'
-            ELSE '16:00'
+            WHEN dpt.display_order = 2 AND block.block_order = 1 THEN '19:30'
+            ELSE '20:00'
         END AS end_time
     FROM daily_plan_session dps
     JOIN daily_plan_task dpt ON dpt.daily_plan_task_id = dps.daily_plan_task_id
@@ -746,7 +746,15 @@ WITH completed_plan_sessions AS (
         dp.plan_date,
         dpt.display_order,
         t.total_time,
-        t.ai_estimated
+        t.ai_estimated,
+        dp.plan_date + CASE
+            WHEN dpt.display_order = 1 AND EXTRACT(ISODOW FROM dp.plan_date) IN (1, 4) THEN TIME '08:00'
+            WHEN dpt.display_order = 1 AND EXTRACT(ISODOW FROM dp.plan_date) IN (2, 5) THEN TIME '19:00'
+            WHEN dpt.display_order = 1 THEN TIME '13:00'
+            WHEN dpt.display_order = 2 AND EXTRACT(ISODOW FROM dp.plan_date) IN (1, 4) THEN TIME '10:30'
+            WHEN dpt.display_order = 2 AND EXTRACT(ISODOW FROM dp.plan_date) IN (2, 5) THEN TIME '20:30'
+            ELSE TIME '15:30'
+        END AS started_at
     FROM daily_plan_session dps
     JOIN daily_plan_task dpt ON dpt.daily_plan_task_id = dps.daily_plan_task_id
     JOIN daily_plan dp ON dp.daily_plan_id = dpt.daily_plan_id
@@ -775,10 +783,10 @@ WITH completed_plan_sessions AS (
         cps.daily_plan_task_id,
         'SESSION',
         'ENDED',
-        cps.plan_date + CASE WHEN cps.display_order = 1 THEN TIME '09:00' ELSE TIME '15:00' END,
-        cps.plan_date + CASE WHEN cps.display_order = 1 THEN TIME '10:25' ELSE TIME '16:05' END,
+        cps.started_at,
+        cps.started_at + (cps.total_time || ' minutes')::interval,
         cps.total_time,
-        cps.plan_date + CASE WHEN cps.display_order = 1 THEN TIME '09:00' ELSE TIME '15:00' END,
+        cps.started_at,
         cps.daily_plan_session_id,
         60,
         cps.ai_estimated
@@ -831,14 +839,14 @@ WITH active_task_seed AS (
     SELECT *
     FROM (
         VALUES
-            ('알고리즘', 'QUANTITY_BASED', '데모 활성 - 알고리즘 모의고사 2회 풀이', '이번 주 알고리즘 대비용 활성 태스크', CURRENT_DATE + TIME '23:30', 'HIGH', 'HIGH', 120, 180, 'IN_PROGRESS', 35, 55, CURRENT_DATE + TIME '09:15'),
-            ('캡스톤', 'SATISFACTION_BASED', '데모 활성 - 캡스톤 최종 발표 리허설', '오늘 보여줄 발표 흐름 점검', CURRENT_DATE + TIME '18:00', 'HIGH', 'MEDIUM', 90, 135, 'PENDING', 0, 0, CURRENT_DATE + TIME '09:20'),
-            ('보안', 'QUANTITY_BASED', '데모 활성 - 웹 보안 체크리스트 정리', '마감 임박 리마인더 확인용', CURRENT_DATE + INTERVAL '1 day' + TIME '21:00', 'MEDIUM', 'MEDIUM', 75, 105, 'PENDING', 0, 0, CURRENT_DATE + TIME '09:25'),
-            ('운영체제', 'SATISFACTION_BASED', '데모 활성 - 운영체제 기말 개념 복습', '난이도별 보정 화면 확인용', CURRENT_DATE + INTERVAL '2 days' + TIME '17:00', 'HIGH', 'HIGH', 150, 220, 'IN_PROGRESS', 40, 70, CURRENT_DATE + TIME '09:30'),
-            ('멀코컴', 'QUANTITY_BASED', '데모 활성 - 멀코컴 과제 3 구현', '추천/정렬 목록 확인용', CURRENT_DATE + INTERVAL '3 days' + TIME '23:00', 'HIGH', 'MEDIUM', 180, 260, 'PENDING', 0, 0, CURRENT_DATE + TIME '09:35'),
-            ('알고리즘', 'QUANTITY_BASED', '데모 활성 - DP 심화 오답 노트', '폴더별 활성 태스크 확인용', CURRENT_DATE + INTERVAL '5 days' + TIME '23:59', 'MEDIUM', 'HIGH', 100, 150, 'PENDING', 0, 0, CURRENT_DATE + TIME '09:40'),
-            ('캡스톤', 'SATISFACTION_BASED', '데모 활성 - 사용자 테스트 피드백 반영', '진행 중 태스크 카드 확인용', CURRENT_DATE + INTERVAL '7 days' + TIME '20:00', 'MEDIUM', 'LOW', 80, 100, 'IN_PROGRESS', 25, 35, CURRENT_DATE + TIME '09:45'),
-            ('보안', 'QUANTITY_BASED', '데모 활성 - 악성코드 분석 실습 보강', '기한 초과 리마인더 확인용', CURRENT_DATE - INTERVAL '1 day' + TIME '22:00', 'HIGH', 'MEDIUM', 90, 130, 'PENDING', 0, 0, CURRENT_DATE + TIME '09:50')
+            ('알고리즘', 'QUANTITY_BASED', '알고리즘 모의고사 2회 풀이', '이번 주 알고리즘 대비', CURRENT_DATE + TIME '23:30', 'HIGH', 'HIGH', 120, 180, 'IN_PROGRESS', 35, 55, CURRENT_DATE + TIME '09:15'),
+            ('캡스톤', 'SATISFACTION_BASED', '캡스톤 최종 발표 리허설', '발표 흐름 점검', CURRENT_DATE + TIME '18:00', 'MEDIUM', 'MEDIUM', 90, 135, 'PENDING', 0, 0, CURRENT_DATE + TIME '09:20'),
+            ('보안', 'QUANTITY_BASED', '웹 보안 체크리스트 정리', '마감 전 점검 항목 정리', CURRENT_DATE + INTERVAL '1 day' + TIME '21:00', 'MEDIUM', 'LOW', 75, 105, 'PENDING', 0, 0, CURRENT_DATE + TIME '09:25'),
+            ('운영체제', 'SATISFACTION_BASED', '운영체제 기말 개념 복습', '스케줄링과 메모리 관리 복습', CURRENT_DATE + INTERVAL '2 days' + TIME '17:00', 'MEDIUM', 'UNKNOWN', 150, 220, 'IN_PROGRESS', 40, 70, CURRENT_DATE + TIME '09:30'),
+            ('멀코컴', 'QUANTITY_BASED', '멀코컴 과제 3 구현', '과제 기능 구현과 테스트', CURRENT_DATE + INTERVAL '3 days' + TIME '23:00', 'HIGH', 'UNKNOWN', 180, 260, 'PENDING', 0, 0, CURRENT_DATE + TIME '09:35'),
+            ('알고리즘', 'QUANTITY_BASED', 'DP 심화 오답 노트', '틀린 문제 패턴 정리', CURRENT_DATE + INTERVAL '5 days' + TIME '23:59', 'MEDIUM', 'HIGH', 100, 150, 'PENDING', 0, 0, CURRENT_DATE + TIME '09:40'),
+            ('캡스톤', 'SATISFACTION_BASED', '사용자 테스트 피드백 반영', '피드백 우선순위 정리 및 반영', CURRENT_DATE + INTERVAL '7 days' + TIME '20:00', 'MEDIUM', 'LOW', 80, 100, 'IN_PROGRESS', 25, 35, CURRENT_DATE + TIME '09:45'),
+            ('보안', 'QUANTITY_BASED', '악성코드 분석 실습 보강', '분석 실습 결과 보완', CURRENT_DATE - INTERVAL '1 day' + TIME '22:00', 'HIGH', 'LOW', 90, 130, 'PENDING', 0, 0, CURRENT_DATE + TIME '09:50')
     ) AS v(folder_name, type_code, name, description, due_date, importance, difficulty, user_estimated, ai_estimated, status, progress_percent, total_time, created_at)
 )
 INSERT INTO task (

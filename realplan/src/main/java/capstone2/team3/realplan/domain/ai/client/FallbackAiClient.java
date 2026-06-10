@@ -216,6 +216,7 @@ public class FallbackAiClient implements AiClient {
         int workloadScore = Math.min(100, Math.max(15, task.remainingMin() / 2));
         double recommendScore = 0.7 * workloadScore + 0.3 * importanceScore;
         String requiredFocusLevel = requiredFocusLevel(task.difficulty(), task.importance());
+        String recommendedTimeBand = recommendedTimeBand(requiredFocusLevel, task.taskId(), request);
 
         return new AiTaskRecommendResponse.RecommendationItem(
                 0,
@@ -229,8 +230,8 @@ public class FallbackAiClient implements AiClient {
                 false,
                 task.dueDate() != null ? "D-?" : "마감 없음",
                 "중요도 " + task.importance(),
-                "12-18",
-                "12-18시",
+                recommendedTimeBand,
+                timeBandLabel(recommendedTimeBand),
                 requiredFocusLevel,
                 "AI 연동 전 fallback 추천입니다."
         );
@@ -250,6 +251,64 @@ public class FallbackAiClient implements AiClient {
             case "MEDIUM" -> "HIGH".equals(importance) ? "HIGH" : "MEDIUM";
             case "LOW" -> "LOW";
             default -> "HIGH".equals(importance) ? "MEDIUM" : "FLEXIBLE";
+        };
+    }
+
+    private String recommendedTimeBand(
+            String requiredFocusLevel,
+            Long taskId,
+            AiTaskRecommendRequest request
+    ) {
+        List<AiTaskRecommendRequest.TimeBandFocusScore> scores = request.timeBandFocusScores();
+        if (scores == null || scores.isEmpty()) {
+            return fallbackTimeBand(requiredFocusLevel, taskId);
+        }
+
+        return switch (requiredFocusLevel) {
+            case "HIGH" -> scores.stream()
+                    .max(Comparator
+                            .comparingInt(AiTaskRecommendRequest.TimeBandFocusScore::focusScore)
+                            .thenComparing(AiTaskRecommendRequest.TimeBandFocusScore::timeBand))
+                    .map(AiTaskRecommendRequest.TimeBandFocusScore::timeBand)
+                    .orElseGet(() -> fallbackTimeBand(requiredFocusLevel, taskId));
+            case "LOW", "FLEXIBLE" -> scores.stream()
+                    .min(Comparator
+                            .comparingInt(AiTaskRecommendRequest.TimeBandFocusScore::focusScore)
+                            .thenComparing(AiTaskRecommendRequest.TimeBandFocusScore::timeBand))
+                    .map(AiTaskRecommendRequest.TimeBandFocusScore::timeBand)
+                    .orElseGet(() -> fallbackTimeBand(requiredFocusLevel, taskId));
+            default -> middleFocusBand(scores, taskId);
+        };
+    }
+
+    private String middleFocusBand(
+            List<AiTaskRecommendRequest.TimeBandFocusScore> scores,
+            Long taskId
+    ) {
+        List<AiTaskRecommendRequest.TimeBandFocusScore> sorted = scores.stream()
+                .sorted(Comparator
+                        .comparingInt(AiTaskRecommendRequest.TimeBandFocusScore::focusScore)
+                        .thenComparing(AiTaskRecommendRequest.TimeBandFocusScore::timeBand))
+                .toList();
+        if (sorted.isEmpty()) {
+            return fallbackTimeBand("MEDIUM", taskId);
+        }
+        return sorted.get(sorted.size() / 2).timeBand();
+    }
+
+    private String fallbackTimeBand(String requiredFocusLevel, Long taskId) {
+        return switch (requiredFocusLevel) {
+            case "HIGH" -> "06-12";
+            case "LOW", "FLEXIBLE" -> "18-24";
+            default -> Math.floorMod(taskId == null ? 0 : taskId, 2) == 0 ? "12-18" : "18-24";
+        };
+    }
+
+    private String timeBandLabel(String timeBand) {
+        return switch (timeBand) {
+            case "06-12" -> "06-12시";
+            case "18-24" -> "18-24시";
+            default -> "12-18시";
         };
     }
 
