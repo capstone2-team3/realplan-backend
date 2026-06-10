@@ -10,6 +10,10 @@ import capstone2.team3.realplan.domain.ai.dto.AiTaskRecommendResponse;
 import capstone2.team3.realplan.domain.dailyplan.dto.*;
 import capstone2.team3.realplan.domain.dailyplan.entity.*;
 import capstone2.team3.realplan.domain.dailyplan.repository.*;
+import capstone2.team3.realplan.domain.session.entity.FocusSession;
+import capstone2.team3.realplan.domain.session.entity.SessionFeedback;
+import capstone2.team3.realplan.domain.session.repository.FocusSessionRepository;
+import capstone2.team3.realplan.domain.session.repository.SessionFeedbackRepository;
 import capstone2.team3.realplan.domain.task.entity.Task;
 import capstone2.team3.realplan.domain.task.repository.TaskRepository;
 import capstone2.team3.realplan.domain.user.entity.User;
@@ -30,6 +34,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -42,6 +48,8 @@ public class DailyPlanService {
     private final DailyPlanTaskRepository dailyPlanTaskRepository;
     private final DailyPlanSessionRepository dailyPlanSessionRepository;
     private final DailyPlanSessionBlockRepository dailyPlanSessionBlockRepository;
+    private final FocusSessionRepository focusSessionRepository;
+    private final SessionFeedbackRepository sessionFeedbackRepository;
     private final UserRepository userRepository;
     private final TaskRepository taskRepository;
     private final AiClient aiClient;
@@ -98,7 +106,7 @@ public class DailyPlanService {
                 plan.getPlanDate().toString(),
                 LocalDateTime.now().toString(),
                 plan.getAvailableMinutes(),
-                defaultTimeBandFocusScores(),
+                userTimeBandFocusScores(userId),
                 candidates.stream().map(this::toRecommendTaskItem).toList()
         ));
 
@@ -469,12 +477,81 @@ public class DailyPlanService {
         return Math.max(1, (int) Math.ceil(resolveTargetMinutes(task) / 30.0));
     }
 
-    private List<AiTaskRecommendRequest.TimeBandFocusScore> defaultTimeBandFocusScores() {
-        return List.of(
-                new AiTaskRecommendRequest.TimeBandFocusScore("06-12", 85),
-                new AiTaskRecommendRequest.TimeBandFocusScore("12-18", 65),
-                new AiTaskRecommendRequest.TimeBandFocusScore("18-24", 45)
-        );
+    private List<AiTaskRecommendRequest.TimeBandFocusScore> userTimeBandFocusScores(Long userId) {
+        Map<String, Integer> fallbackScores = defaultTimeBandScoreMap();
+        Map<String, List<Integer>> focusScoresByBand = findFocusScoresByBand(userId);
+
+        return fallbackScores.entrySet().stream()
+                .map(entry -> new AiTaskRecommendRequest.TimeBandFocusScore(
+                        entry.getKey(),
+                        averageFocusScore(focusScoresByBand.get(entry.getKey()), entry.getValue())))
+                .toList();
+    }
+
+    private Map<String, Integer> defaultTimeBandScoreMap() {
+        Map<String, Integer> scores = new java.util.LinkedHashMap<>();
+        scores.put("06-12", 85);
+        scores.put("12-18", 65);
+        scores.put("18-24", 45);
+        return scores;
+    }
+
+    private Map<String, List<Integer>> findFocusScoresByBand(Long userId) {
+        LocalDateTime start = LocalDate.now().minusWeeks(4).atStartOfDay();
+        LocalDateTime end = LocalDateTime.now();
+        List<FocusSession> sessions = focusSessionRepository
+                .findAllByUserUserIdAndStartedAtGreaterThanEqualAndStartedAtLessThanAndSessionStatus(
+                        userId, start, end, FocusSession.SessionStatus.ENDED);
+        if (sessions.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<Long, FocusSession> sessionById = sessions.stream()
+                .collect(Collectors.toMap(FocusSession::getSessionId, Function.identity()));
+
+        return sessionFeedbackRepository.findAllBySessionSessionIdIn(sessionById.keySet())
+                .stream()
+                .filter(feedback -> resolveTimeBand(sessionById.get(feedback.getSession().getSessionId())) != null)
+                .collect(Collectors.groupingBy(
+                        feedback -> resolveTimeBand(sessionById.get(feedback.getSession().getSessionId())),
+                        Collectors.mapping(feedback -> focusScore(feedback.getFocusLevel()), Collectors.toList())));
+    }
+
+    private Integer averageFocusScore(List<Integer> focusScores, int fallbackScore) {
+        if (focusScores == null || focusScores.isEmpty()) {
+            return fallbackScore;
+        }
+        double average = focusScores.stream()
+                .mapToInt(Integer::intValue)
+                .average()
+                .orElse(0.0);
+        return (int) Math.round((average / 4.0) * 100);
+    }
+
+    private String resolveTimeBand(FocusSession session) {
+        if (session == null || session.getStartedAt() == null) {
+            return null;
+        }
+        int hour = session.getStartedAt().getHour();
+        if (hour >= 6 && hour < 12) {
+            return "06-12";
+        }
+        if (hour >= 12 && hour < 18) {
+            return "12-18";
+        }
+        if (hour >= 18 && hour < 24) {
+            return "18-24";
+        }
+        return null;
+    }
+
+    private int focusScore(SessionFeedback.FocusLevel focusLevel) {
+        return switch (focusLevel) {
+            case LOW -> 1;
+            case MEDIUM -> 2;
+            case HIGH -> 3;
+            case VERY_HIGH -> 4;
+        };
     }
 
     private AiTaskRecommendRequest.TaskItem toRecommendTaskItem(Task task) {
