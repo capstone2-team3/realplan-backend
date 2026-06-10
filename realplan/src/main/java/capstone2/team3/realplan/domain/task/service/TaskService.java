@@ -10,6 +10,7 @@ import capstone2.team3.realplan.domain.folder.repository.FolderRepository;
 import capstone2.team3.realplan.domain.task.dto.TaskClassifyRequest;
 import capstone2.team3.realplan.domain.task.dto.TaskClassifyResponse;
 import capstone2.team3.realplan.domain.task.dto.TaskCreateRequest;
+import capstone2.team3.realplan.domain.task.dto.TaskReminderResponse;
 import capstone2.team3.realplan.domain.task.dto.TaskResponse;
 import capstone2.team3.realplan.domain.task.dto.TaskUpdateRequest;
 import capstone2.team3.realplan.domain.task.entity.Task;
@@ -25,6 +26,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 @Service
@@ -33,6 +36,8 @@ import java.util.List;
 public class TaskService {
 
     private static final int CLASSIFY_HISTORY_LIMIT = 50;
+    private static final int DEFAULT_REMINDER_LIMIT = 5;
+    private static final int MAX_REMINDER_LIMIT = 20;
 
     private final TaskRepository taskRepository;
     private final UserRepository userRepository;
@@ -85,6 +90,21 @@ public class TaskService {
     public TaskResponse getTask(Long userId, Long taskId) {
         Task task = getTaskOrThrow(userId, taskId);
         return TaskResponse.from(task);
+    }
+
+    // 홈 화면 태스크 리마인더 조회
+    public List<TaskReminderResponse> getReminders(Long userId, Integer limit) {
+        int resolvedLimit = resolveReminderLimit(limit);
+        LocalDateTime now = LocalDateTime.now();
+
+        return taskRepository.findAllByUserUserIdAndDeletedAtIsNullOrderByCreatedAtDesc(userId)
+                .stream()
+                .filter(task -> task.getStatus() != Task.Status.COMPLETED)
+                .filter(task -> task.getRemainingMin() == null || task.getRemainingMin() > 0)
+                .map(task -> buildReminder(task, now))
+                .sorted((a, b) -> Integer.compare(b.getPriority(), a.getPriority()))
+                .limit(resolvedLimit)
+                .toList();
     }
 
     // 태스크 유형 추천. DB 저장 없이 AI 분류 결과만 반환한다.
@@ -176,6 +196,15 @@ public class TaskService {
         task.softDelete();
     }
 
+    @Transactional
+    public void markRemindersRead(Long userId, List<Long> taskIds) {
+        LocalDateTime now = LocalDateTime.now();
+        taskIds.stream()
+                .distinct()
+                .map(taskId -> getTaskOrThrow(userId, taskId))
+                .forEach(task -> task.updateLastNotifiedAt(now));
+    }
+
     // 태스크 완료 처리
     @Transactional
     public TaskResponse completeTask(Long userId, Long taskId) {
@@ -190,6 +219,89 @@ public class TaskService {
     private Task getTaskOrThrow(Long userId, Long taskId) {
         return taskRepository.findByTaskIdAndUserUserIdAndDeletedAtIsNull(taskId, userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.TASK_NOT_FOUND));
+    }
+
+    private TaskReminderResponse buildReminder(Task task, LocalDateTime now) {
+        TaskReminderResponse.ReminderType type = resolveReminderType(task, now);
+        int priority = calculateReminderPriority(task, type, now);
+        return TaskReminderResponse.of(task, type, resolveReminderMessage(type), priority);
+    }
+
+    private TaskReminderResponse.ReminderType resolveReminderType(Task task, LocalDateTime now) {
+        LocalDateTime dueDate = task.getDueDate();
+        if (dueDate != null && dueDate.isBefore(now)) {
+            return TaskReminderResponse.ReminderType.OVERDUE;
+        }
+        if (dueDate != null && dueDate.toLocalDate().isEqual(now.toLocalDate())) {
+            return TaskReminderResponse.ReminderType.DUE_TODAY;
+        }
+        if (dueDate != null && !dueDate.isAfter(now.plusDays(3))) {
+            return TaskReminderResponse.ReminderType.DUE_SOON;
+        }
+        if (task.getStatus() == Task.Status.IN_PROGRESS) {
+            return TaskReminderResponse.ReminderType.IN_PROGRESS;
+        }
+        if (task.getImportance() == Task.Importance.HIGH) {
+            return TaskReminderResponse.ReminderType.HIGH_IMPORTANCE;
+        }
+        return TaskReminderResponse.ReminderType.UPCOMING;
+    }
+
+    private int calculateReminderPriority(
+            Task task,
+            TaskReminderResponse.ReminderType type,
+            LocalDateTime now
+    ) {
+        int priority = switch (type) {
+            case OVERDUE -> 100;
+            case DUE_TODAY -> 92;
+            case DUE_SOON -> 82;
+            case IN_PROGRESS -> 72;
+            case HIGH_IMPORTANCE -> 62;
+            case UPCOMING -> 45;
+        };
+
+        priority += switch (task.getImportance()) {
+            case HIGH -> 6;
+            case MEDIUM -> 3;
+            case LOW -> 0;
+        };
+
+        if (task.getStatus() == Task.Status.IN_PROGRESS) {
+            priority += 4;
+        }
+        if (task.getLastNotifiedAt() != null && task.getLastNotifiedAt().isAfter(now.minusHours(6))) {
+            priority -= 10;
+        }
+        if (task.getDueDate() != null) {
+            long daysUntilDue = ChronoUnit.DAYS.between(now.toLocalDate(), task.getDueDate().toLocalDate());
+            if (daysUntilDue >= 0 && daysUntilDue <= 3) {
+                priority += 3 - (int) daysUntilDue;
+            }
+        }
+
+        return Math.max(0, Math.min(100, priority));
+    }
+
+    private String resolveReminderMessage(TaskReminderResponse.ReminderType type) {
+        return switch (type) {
+            case OVERDUE -> "마감이 지났어요";
+            case DUE_TODAY -> "오늘 마감이에요";
+            case DUE_SOON -> "마감이 얼마 남지 않았어요";
+            case IN_PROGRESS -> "진행 중인 태스크가 남아 있어요";
+            case HIGH_IMPORTANCE -> "중요도가 높은 태스크예요";
+            case UPCOMING -> "미리 진행하면 좋아요";
+        };
+    }
+
+    private int resolveReminderLimit(Integer limit) {
+        if (limit == null) {
+            return DEFAULT_REMINDER_LIMIT;
+        }
+        if (limit < 1) {
+            return DEFAULT_REMINDER_LIMIT;
+        }
+        return Math.min(limit, MAX_REMINDER_LIMIT);
     }
 
     private void validateEstimatedMinutes(Integer estimatedMinutes) {

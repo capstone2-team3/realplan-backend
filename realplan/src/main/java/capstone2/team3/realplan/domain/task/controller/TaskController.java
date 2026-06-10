@@ -3,6 +3,8 @@ package capstone2.team3.realplan.domain.task.controller;
 import capstone2.team3.realplan.domain.task.dto.TaskClassifyRequest;
 import capstone2.team3.realplan.domain.task.dto.TaskClassifyResponse;
 import capstone2.team3.realplan.domain.task.dto.TaskCreateRequest;
+import capstone2.team3.realplan.domain.task.dto.TaskReminderReadRequest;
+import capstone2.team3.realplan.domain.task.dto.TaskReminderResponse;
 import capstone2.team3.realplan.domain.task.dto.TaskResponse;
 import capstone2.team3.realplan.domain.task.dto.TaskUpdateRequest;
 import capstone2.team3.realplan.domain.task.service.TaskService;
@@ -36,6 +38,23 @@ public class TaskController {
             @RequestParam(required = false, defaultValue = "RECENT") String sort) {
         return ResponseEntity.ok(ApiResponse.ok(
                 taskService.getTasks(authUser.getUserId(), folderId, filter, sort)));
+    }
+
+    @Operation(summary = "홈 화면 태스크 리마인더 조회")
+    @GetMapping("/reminders")
+    public ResponseEntity<ApiResponse<List<TaskReminderResponse>>> getReminders(
+            @AuthenticationPrincipal AuthUser authUser,
+            @RequestParam(required = false) Integer limit) {
+        return ResponseEntity.ok(ApiResponse.ok(taskService.getReminders(authUser.getUserId(), limit)));
+    }
+
+    @Operation(summary = "태스크 리마인더 확인 처리")
+    @PostMapping("/reminders/read")
+    public ResponseEntity<ApiResponse<Void>> markRemindersRead(
+            @AuthenticationPrincipal AuthUser authUser,
+            @Valid @RequestBody TaskReminderReadRequest request) {
+        taskService.markRemindersRead(authUser.getUserId(), request.getTaskIds());
+        return ResponseEntity.ok(ApiResponse.ok());
     }
 
     @Operation(summary = "태스크 상세 조회")
