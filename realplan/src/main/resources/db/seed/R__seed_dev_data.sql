@@ -834,6 +834,164 @@ SELECT
     END
 FROM inserted_rolling_sessions irs;
 
+-- Time-based completed tasks for historical stats and type correction demos.
+WITH time_completed_seed AS (
+    SELECT *
+    FROM (
+        VALUES
+            ('운영체제', '운영체제 강의 2시간 시청', '운체보 CPU 스케줄링 강의 수강', CURRENT_DATE - INTERVAL '18 days' + TIME '22:00', 'MEDIUM', 'MEDIUM', 120, 125, 130, CURRENT_DATE - INTERVAL '18 days' + TIME '19:00', CURRENT_DATE - INTERVAL '18 days' + TIME '21:10', 'HIGH', 4),
+            ('보안', '보안 특강 90분 복습', '웹 취약점 특강 녹화 복습', CURRENT_DATE - INTERVAL '15 days' + TIME '21:00', 'HIGH', 'LOW', 90, 85, 90, CURRENT_DATE - INTERVAL '15 days' + TIME '10:00', CURRENT_DATE - INTERVAL '15 days' + TIME '11:30', 'VERY_HIGH', 5),
+            ('캡스톤', '캡스톤 회의록 60분 정리', '팀 회의 녹취와 결정사항 정리', CURRENT_DATE - INTERVAL '12 days' + TIME '18:00', 'MEDIUM', 'LOW', 60, 58, 55, CURRENT_DATE - INTERVAL '12 days' + TIME '15:00', CURRENT_DATE - INTERVAL '12 days' + TIME '15:55', 'MEDIUM', 4),
+            ('멀코컴', '멀코컴 강의 75분 듣기', '멀코컴 네트워크 계층 강의 수강', CURRENT_DATE - INTERVAL '9 days' + TIME '20:00', 'MEDIUM', 'MEDIUM', 75, 80, 82, CURRENT_DATE - INTERVAL '9 days' + TIME '20:00', CURRENT_DATE - INTERVAL '9 days' + TIME '21:22', 'HIGH', 5),
+            ('알고리즘', '알고리즘 해설 영상 45분 시청', 'DP 문제 해설 영상 시청', CURRENT_DATE - INTERVAL '6 days' + TIME '23:00', 'LOW', 'UNKNOWN', 45, 50, 48, CURRENT_DATE - INTERVAL '6 days' + TIME '08:30', CURRENT_DATE - INTERVAL '6 days' + TIME '09:18', 'MEDIUM', 3),
+            ('보안', '보안 기사 2시간 읽기', '최신 보안 사고 분석 기사 읽기', CURRENT_DATE - INTERVAL '3 days' + TIME '22:00', 'MEDIUM', 'LOW', 120, 115, 105, CURRENT_DATE - INTERVAL '3 days' + TIME '13:00', CURRENT_DATE - INTERVAL '3 days' + TIME '14:45', 'HIGH', 4)
+    ) AS v(folder_name, name, description, due_date, importance, difficulty, user_estimated, ai_estimated, actual_minutes, started_at, ended_at, focus_level, progress_level)
+), inserted_time_tasks AS (
+    INSERT INTO task (
+        user_id,
+        folder_id,
+        task_type_id,
+        name,
+        description,
+        due_date,
+        importance,
+        status,
+        difficulty,
+        correction_enabled,
+        user_estimated,
+        ai_estimated,
+        final_estimated,
+        remaining_min,
+        progress_percent,
+        total_time,
+        completed_at,
+        last_notified_at,
+        created_at,
+        updated_at,
+        last_ai_estimated_at,
+        deleted_at
+    )
+    SELECT
+        1,
+        f.folder_id,
+        tt.task_type_id,
+        tcs.name,
+        tcs.description,
+        tcs.due_date,
+        tcs.importance,
+        'COMPLETED',
+        tcs.difficulty,
+        TRUE,
+        tcs.user_estimated,
+        tcs.ai_estimated,
+        tcs.ai_estimated,
+        0,
+        100,
+        tcs.actual_minutes,
+        tcs.ended_at,
+        NULL,
+        tcs.started_at - INTERVAL '1 hour',
+        tcs.ended_at,
+        tcs.started_at - INTERVAL '1 hour',
+        NULL
+    FROM time_completed_seed tcs
+    JOIN folder f ON f.user_id = 1 AND f.name = tcs.folder_name
+    JOIN task_type tt ON tt.code = 'TIME_BASED'
+    RETURNING task_id, name, user_id, ai_estimated
+), inserted_time_sessions AS (
+    INSERT INTO focus_session (
+        task_id,
+        user_id,
+        daily_plan_task_id,
+        source,
+        session_status,
+        started_at,
+        ended_at,
+        actual_minutes,
+        created_at,
+        daily_plan_session_id,
+        planned_minutes,
+        ai_remaining_before
+    )
+    SELECT
+        itt.task_id,
+        itt.user_id,
+        NULL,
+        'MANUAL',
+        'ENDED',
+        tcs.started_at,
+        tcs.ended_at,
+        tcs.actual_minutes,
+        tcs.started_at,
+        NULL,
+        tcs.user_estimated,
+        itt.ai_estimated
+    FROM inserted_time_tasks itt
+    JOIN time_completed_seed tcs ON tcs.name = itt.name
+    RETURNING session_id, task_id, started_at, actual_minutes, ai_remaining_before
+)
+INSERT INTO session_feedback (
+    session_id,
+    progress_level,
+    progress_percent_after,
+    focus_level,
+    ai_remaining_before,
+    ai_remaining_after,
+    note,
+    created_at,
+    previous_ai_total_minutes,
+    updated_ai_total_minutes,
+    progress_based_remaining_minutes,
+    normalized_remaining_minutes,
+    blending_weight,
+    focus_weight
+)
+SELECT
+    its.session_id,
+    tcs.progress_level,
+    100,
+    tcs.focus_level,
+    its.ai_remaining_before,
+    0,
+    '시간형 완료 태스크 데모 seed 데이터',
+    tcs.ended_at,
+    its.ai_remaining_before,
+    its.ai_remaining_before,
+    0,
+    0,
+    0.600000,
+    CASE
+        WHEN tcs.focus_level = 'VERY_HIGH' THEN 1.150000
+        WHEN tcs.focus_level = 'HIGH' THEN 1.080000
+        ELSE 1.000000
+    END
+FROM inserted_time_sessions its
+JOIN inserted_time_tasks itt ON itt.task_id = its.task_id
+JOIN time_completed_seed tcs ON tcs.name = itt.name;
+
+UPDATE user_ai_type_residual
+SET residual = -0.0400,
+    sample_count = 6,
+    updated_at = CURRENT_TIMESTAMP
+WHERE user_id = 1
+  AND task_type_id = (SELECT task_type_id FROM task_type WHERE code = 'TIME_BASED');
+
+UPDATE user_task_type_profile
+SET sample_count = 6,
+    sum_planned_minutes = 510,
+    sum_actual_minutes = 510,
+    error_ratio = 1.0000,
+    bias_correction_factor = 1.0000,
+    last_calculated_at = CURRENT_TIMESTAMP,
+    updated_at = CURRENT_TIMESTAMP
+WHERE user_id = 1
+  AND task_type_id = (SELECT task_type_id FROM task_type WHERE code = 'TIME_BASED');
+
+UPDATE user_ai_profile
+SET completed_count = 36,
+    updated_at = CURRENT_TIMESTAMP
+WHERE user_id = 1;
+
 -- Extra active tasks for task list, reminders, and recommendation demos.
 WITH active_task_seed AS (
     SELECT *
@@ -846,7 +1004,10 @@ WITH active_task_seed AS (
             ('멀코컴', 'QUANTITY_BASED', '멀코컴 과제 3 구현', '과제 기능 구현과 테스트', CURRENT_DATE + INTERVAL '3 days' + TIME '23:00', 'HIGH', 'UNKNOWN', 180, 260, 'PENDING', 0, 0, CURRENT_DATE + TIME '09:35'),
             ('알고리즘', 'QUANTITY_BASED', 'DP 심화 오답 노트', '틀린 문제 패턴 정리', CURRENT_DATE + INTERVAL '5 days' + TIME '23:59', 'MEDIUM', 'HIGH', 100, 150, 'PENDING', 0, 0, CURRENT_DATE + TIME '09:40'),
             ('캡스톤', 'SATISFACTION_BASED', '사용자 테스트 피드백 반영', '피드백 우선순위 정리 및 반영', CURRENT_DATE + INTERVAL '7 days' + TIME '20:00', 'MEDIUM', 'LOW', 80, 100, 'IN_PROGRESS', 25, 35, CURRENT_DATE + TIME '09:45'),
-            ('보안', 'QUANTITY_BASED', '악성코드 분석 실습 보강', '분석 실습 결과 보완', CURRENT_DATE - INTERVAL '1 day' + TIME '22:00', 'HIGH', 'LOW', 90, 130, 'PENDING', 0, 0, CURRENT_DATE + TIME '09:50')
+            ('보안', 'QUANTITY_BASED', '악성코드 분석 실습 보강', '분석 실습 결과 보완', CURRENT_DATE - INTERVAL '1 day' + TIME '22:00', 'HIGH', 'LOW', 90, 130, 'PENDING', 0, 0, CURRENT_DATE + TIME '09:50'),
+            ('운영체제', 'TIME_BASED', '운영체제 강의 90분 복습', '오늘 강의 녹화 다시 보기', CURRENT_DATE + INTERVAL '1 day' + TIME '19:30', 'MEDIUM', 'MEDIUM', 90, 95, 'IN_PROGRESS', 50, 45, CURRENT_DATE + TIME '10:00'),
+            ('캡스톤', 'TIME_BASED', '캡스톤 문서 60분 정리', 'API 변경사항 문서화', CURRENT_DATE + INTERVAL '2 days' + TIME '16:00', 'MEDIUM', 'LOW', 60, 65, 'PENDING', 0, 0, CURRENT_DATE + TIME '10:05'),
+            ('보안', 'TIME_BASED', '보안 뉴스 45분 읽기', '보안 이슈 기사 읽고 요약', CURRENT_DATE + INTERVAL '4 days' + TIME '22:00', 'LOW', 'UNKNOWN', 45, 45, 'IN_PROGRESS', 40, 18, CURRENT_DATE + TIME '10:10')
     ) AS v(folder_name, type_code, name, description, due_date, importance, difficulty, user_estimated, ai_estimated, status, progress_percent, total_time, created_at)
 )
 INSERT INTO task (
