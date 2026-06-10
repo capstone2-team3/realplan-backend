@@ -900,4 +900,101 @@ FROM active_task_seed ats
 JOIN folder f ON f.user_id = 1 AND f.name = ats.folder_name
 JOIN task_type tt ON tt.code = ats.type_code;
 
+-- In-progress tasks should also have session history that matches progress/totalTime.
+WITH active_session_seed AS (
+    SELECT
+        t.task_id,
+        t.user_id,
+        t.name,
+        t.total_time,
+        t.progress_percent,
+        t.ai_estimated,
+        t.remaining_min,
+        t.created_at + INTERVAL '1 hour' AS started_at,
+        dpt.daily_plan_task_id,
+        dpt.planned_minutes
+    FROM task t
+    LEFT JOIN daily_plan dp
+      ON dp.user_id = t.user_id
+     AND dp.plan_date = t.due_date::date
+    LEFT JOIN daily_plan_task dpt
+      ON dpt.daily_plan_id = dp.daily_plan_id
+     AND dpt.task_id = t.task_id
+    WHERE t.user_id = 1
+      AND t.status <> 'COMPLETED'
+      AND t.total_time > 0
+      AND t.deleted_at IS NULL
+), inserted_active_sessions AS (
+    INSERT INTO focus_session (
+        task_id,
+        user_id,
+        daily_plan_task_id,
+        source,
+        session_status,
+        started_at,
+        ended_at,
+        actual_minutes,
+        created_at,
+        daily_plan_session_id,
+        planned_minutes,
+        ai_remaining_before
+    )
+    SELECT
+        ass.task_id,
+        ass.user_id,
+        ass.daily_plan_task_id,
+        'MANUAL',
+        'ENDED',
+        ass.started_at,
+        ass.started_at + (ass.total_time || ' minutes')::interval,
+        ass.total_time,
+        ass.started_at,
+        NULL,
+        COALESCE(NULLIF(ass.planned_minutes, 0), ass.total_time),
+        ass.ai_estimated
+    FROM active_session_seed ass
+    RETURNING session_id, task_id, started_at, actual_minutes, ai_remaining_before
+)
+INSERT INTO session_feedback (
+    session_id,
+    progress_level,
+    progress_percent_after,
+    focus_level,
+    ai_remaining_before,
+    ai_remaining_after,
+    note,
+    created_at,
+    previous_ai_total_minutes,
+    updated_ai_total_minutes,
+    progress_based_remaining_minutes,
+    normalized_remaining_minutes,
+    blending_weight,
+    focus_weight
+)
+SELECT
+    ias.session_id,
+    CASE
+        WHEN t.progress_percent >= 40 THEN 4
+        WHEN t.progress_percent >= 20 THEN 3
+        ELSE 2
+    END,
+    t.progress_percent,
+    CASE
+        WHEN t.difficulty = 'HIGH' THEN 'HIGH'
+        WHEN t.difficulty = 'LOW' THEN 'MEDIUM'
+        ELSE 'MEDIUM'
+    END,
+    ias.ai_remaining_before,
+    t.remaining_min,
+    '진행 중 태스크 데모 seed 데이터',
+    ias.started_at + (ias.actual_minutes || ' minutes')::interval,
+    ias.ai_remaining_before,
+    t.ai_estimated,
+    t.remaining_min,
+    t.remaining_min,
+    0.600000,
+    CASE WHEN t.difficulty = 'HIGH' THEN 1.080000 ELSE 1.000000 END
+FROM inserted_active_sessions ias
+JOIN task t ON t.task_id = ias.task_id;
+
 COMMIT;
