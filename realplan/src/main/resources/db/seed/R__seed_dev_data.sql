@@ -1,10 +1,15 @@
 INSERT INTO users (email, password_hash, nickname, created_at, updated_at)
-SELECT 'test@test.com', 'temp_hash', '테스트유저', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+SELECT 'test@test.com', '$2a$10$j7r0S607QLLg5GZ2wDepMuMMwu4/Lf4P5qBwuuN6anTsiR.Vo0sWW', '테스트유저', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 WHERE NOT EXISTS (
     SELECT 1
     FROM users
     WHERE email = 'test@test.com'
 );
+
+UPDATE users
+SET password_hash = '$2a$10$j7r0S607QLLg5GZ2wDepMuMMwu4/Lf4P5qBwuuN6anTsiR.Vo0sWW',
+    updated_at = CURRENT_TIMESTAMP
+WHERE email = 'test@test.com';
 
 INSERT INTO folder (user_id, name, is_default, created_at, updated_at)
 SELECT u.user_id, '기본 폴더', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
@@ -63,6 +68,7 @@ DELETE FROM session_pause_event
 WHERE session_id IN (SELECT fs.session_id FROM focus_session fs WHERE fs.user_id = 1);
 DELETE FROM ai_estimation_log WHERE user_id = 1;
 DELETE FROM ai_coefficient_update_log WHERE user_id = 1;
+DELETE FROM focus_session WHERE user_id = 1;
 DELETE FROM daily_plan_session_block
 WHERE daily_plan_session_id IN (SELECT dps.daily_plan_session_id FROM daily_plan_session dps WHERE dps.user_id = 1);
 DELETE FROM daily_plan_session WHERE user_id = 1;
@@ -70,7 +76,6 @@ DELETE FROM daily_plan_slot WHERE user_id = 1;
 DELETE FROM daily_plan_task
 WHERE daily_plan_id IN (SELECT dp.daily_plan_id FROM daily_plan dp WHERE dp.user_id = 1);
 DELETE FROM daily_plan WHERE user_id = 1;
-DELETE FROM focus_session WHERE user_id = 1;
 DELETE FROM user_task_type_profile WHERE user_id = 1;
 DELETE FROM user_ai_folder_residual WHERE user_id = 1;
 DELETE FROM user_ai_difficulty_residual WHERE user_id = 1;
@@ -451,5 +456,440 @@ SELECT t.task_id, u.user_id, us.estimated_minutes, us.actual_minutes, us.plannin
 FROM update_seed us
 JOIN users u ON u.user_id = 1
 JOIN task t ON t.user_id = u.user_id AND t.name = us.task_name;
+
+COMMIT;
+
+-- ================================================================
+-- Rolling demo data for presentation screens.
+-- Keeps analytics, daily plans, tasks, and sessions populated around
+-- CURRENT_DATE so "this week vs last week" remains meaningful.
+-- ================================================================
+BEGIN;
+
+-- Normalize legacy demo session values to the current Java enums.
+UPDATE focus_session
+SET source = 'MANUAL'
+WHERE user_id = 1
+  AND source = 'USER';
+
+UPDATE focus_session
+SET session_status = 'ENDED'
+WHERE user_id = 1
+  AND session_status = 'DONE';
+
+-- 21 daily plans: current week, previous week, and one more week of history.
+WITH plan_seed AS (
+    SELECT gs::date AS plan_date
+    FROM generate_series(CURRENT_DATE - INTERVAL '20 days', CURRENT_DATE, INTERVAL '1 day') AS gs
+)
+INSERT INTO daily_plan (user_id, plan_date, available_minutes, total_minutes, status, confirmed_at, created_at, updated_at)
+SELECT
+    1,
+    ps.plan_date,
+    180,
+    CASE WHEN ps.plan_date = CURRENT_DATE THEN 120 ELSE 150 END,
+    CASE WHEN ps.plan_date = CURRENT_DATE THEN 'CONFIRMED' ELSE 'ENDED' END,
+    ps.plan_date + TIME '08:30',
+    ps.plan_date + TIME '08:00',
+    ps.plan_date + TIME '21:00'
+FROM plan_seed ps
+WHERE EXISTS (SELECT 1 FROM users u WHERE u.user_id = 1);
+
+WITH rolling_task_seed AS (
+    SELECT
+        ps.plan_date,
+        v.task_order,
+        v.folder_name,
+        v.type_code,
+        format('데모 - %s - %s', to_char(ps.plan_date, 'MM/DD'), v.name_suffix) AS task_name,
+        v.importance,
+        v.difficulty,
+        v.user_estimated,
+        v.ai_estimated,
+        CASE
+            WHEN ps.plan_date < CURRENT_DATE THEN 'COMPLETED'
+            WHEN v.task_order = 1 THEN 'COMPLETED'
+            ELSE 'IN_PROGRESS'
+        END AS task_status,
+        CASE
+            WHEN ps.plan_date < CURRENT_DATE THEN 100
+            WHEN v.task_order = 1 THEN 100
+            ELSE 45
+        END AS progress_percent,
+        CASE
+            WHEN ps.plan_date < CURRENT_DATE THEN v.actual_minutes
+            WHEN v.task_order = 1 THEN v.actual_minutes
+            ELSE 45
+        END AS total_time,
+        CASE
+            WHEN ps.plan_date < CURRENT_DATE OR v.task_order = 1 THEN ps.plan_date + v.completed_time
+            ELSE NULL
+        END AS completed_at,
+        ps.plan_date + v.created_time AS created_at
+    FROM (
+        SELECT gs::date AS plan_date
+        FROM generate_series(CURRENT_DATE - INTERVAL '20 days', CURRENT_DATE, INTERVAL '1 day') AS gs
+    ) ps
+    CROSS JOIN (
+        VALUES
+            (1, '알고리즘', 'QUANTITY_BASED', '알고리즘 실전 문제 풀이', 'HIGH', 'MEDIUM', 90, 120, 85, TIME '07:50', TIME '10:35'),
+            (2, '캡스톤', 'SATISFACTION_BASED', '캡스톤 발표/보고서 정리', 'MEDIUM', 'HIGH', 75, 110, 65, TIME '08:05', TIME '16:20')
+    ) AS v(task_order, folder_name, type_code, name_suffix, importance, difficulty, user_estimated, ai_estimated, actual_minutes, created_time, completed_time)
+)
+INSERT INTO task (
+    user_id,
+    folder_id,
+    task_type_id,
+    name,
+    description,
+    due_date,
+    importance,
+    status,
+    difficulty,
+    correction_enabled,
+    user_estimated,
+    ai_estimated,
+    final_estimated,
+    remaining_min,
+    progress_percent,
+    total_time,
+    completed_at,
+    last_notified_at,
+    created_at,
+    updated_at,
+    last_ai_estimated_at,
+    deleted_at
+)
+SELECT
+    1,
+    f.folder_id,
+    tt.task_type_id,
+    rts.task_name,
+    '시연용 최근 3주 롤링 데이터',
+    rts.plan_date + TIME '23:00',
+    rts.importance,
+    rts.task_status,
+    rts.difficulty,
+    TRUE,
+    rts.user_estimated,
+    rts.ai_estimated,
+    rts.ai_estimated,
+    CASE WHEN rts.task_status = 'COMPLETED' THEN 0 ELSE GREATEST(0, rts.ai_estimated - rts.total_time) END,
+    rts.progress_percent,
+    rts.total_time,
+    rts.completed_at,
+    NULL,
+    rts.created_at,
+    COALESCE(rts.completed_at, rts.plan_date + TIME '12:00'),
+    rts.created_at,
+    NULL
+FROM rolling_task_seed rts
+JOIN folder f ON f.user_id = 1 AND f.name = rts.folder_name
+JOIN task_type tt ON tt.code = rts.type_code;
+
+WITH plan_task_seed AS (
+    SELECT
+        dp.daily_plan_id,
+        dp.plan_date,
+        t.task_id,
+        ROW_NUMBER() OVER (PARTITION BY dp.daily_plan_id ORDER BY t.name) AS display_order,
+        CASE WHEN t.status = 'COMPLETED' THEN t.total_time ELSE 60 END AS planned_minutes,
+        t.status
+    FROM daily_plan dp
+    JOIN task t
+      ON t.user_id = dp.user_id
+     AND t.name LIKE format('데모 - %s - %%', to_char(dp.plan_date, 'MM/DD'))
+    WHERE dp.user_id = 1
+      AND dp.plan_date BETWEEN CURRENT_DATE - INTERVAL '20 days' AND CURRENT_DATE
+)
+INSERT INTO daily_plan_task (daily_plan_id, task_id, display_order, source_type, planned_minutes, is_selected, created_at, updated_at)
+SELECT
+    pts.daily_plan_id,
+    pts.task_id,
+    pts.display_order,
+    CASE WHEN pts.display_order = 1 THEN 'AI' ELSE 'BOTH' END,
+    pts.planned_minutes,
+    TRUE,
+    pts.plan_date + TIME '08:20',
+    pts.plan_date + TIME '08:30'
+FROM plan_task_seed pts;
+
+WITH plan_slots AS (
+    SELECT
+        dp.daily_plan_id,
+        dp.user_id,
+        dp.plan_date,
+        slot.slot_index,
+        slot.display_order
+    FROM daily_plan dp
+    CROSS JOIN (
+        VALUES
+            (6, 1),
+            (7, 1),
+            (18, 2),
+            (19, 2),
+            (20, NULL),
+            (21, NULL)
+    ) AS slot(slot_index, display_order)
+    WHERE dp.user_id = 1
+      AND dp.plan_date BETWEEN CURRENT_DATE - INTERVAL '20 days' AND CURRENT_DATE
+)
+INSERT INTO daily_plan_slot (daily_plan_id, user_id, slot_index, created_at, daily_plan_task_id)
+SELECT
+    ps.daily_plan_id,
+    ps.user_id,
+    ps.slot_index,
+    ps.plan_date + TIME '08:25',
+    dpt.daily_plan_task_id
+FROM plan_slots ps
+LEFT JOIN daily_plan_task dpt
+  ON dpt.daily_plan_id = ps.daily_plan_id
+ AND dpt.display_order = ps.display_order;
+
+WITH plan_session_seed AS (
+    SELECT
+        dpt.daily_plan_task_id,
+        dpt.task_id,
+        dp.user_id,
+        dp.plan_date,
+        dpt.display_order,
+        CASE WHEN t.status = 'COMPLETED' THEN LEAST(90, GREATEST(30, t.total_time)) ELSE 60 END AS session_minutes,
+        CASE WHEN dpt.display_order = 1 THEN 'HIGH' ELSE 'MEDIUM' END AS required_focus_level,
+        CASE
+            WHEN t.status = 'COMPLETED' THEN 'DONE'
+            WHEN dp.plan_date = CURRENT_DATE THEN 'SCHEDULED'
+            ELSE 'PLANNED'
+        END AS session_plan_status
+    FROM daily_plan_task dpt
+    JOIN daily_plan dp ON dp.daily_plan_id = dpt.daily_plan_id
+    JOIN task t ON t.task_id = dpt.task_id
+    WHERE dp.user_id = 1
+      AND dp.plan_date BETWEEN CURRENT_DATE - INTERVAL '20 days' AND CURRENT_DATE
+)
+INSERT INTO daily_plan_session (
+    daily_plan_task_id,
+    task_id,
+    user_id,
+    session_order,
+    session_minutes,
+    required_focus_level,
+    source_type,
+    status,
+    unscheduled_reason,
+    created_at,
+    updated_at
+)
+SELECT
+    pss.daily_plan_task_id,
+    pss.task_id,
+    pss.user_id,
+    1,
+    pss.session_minutes,
+    pss.required_focus_level,
+    'AI',
+    pss.session_plan_status,
+    NULL,
+    pss.plan_date + TIME '08:35',
+    pss.plan_date + TIME '08:40'
+FROM plan_session_seed pss;
+
+WITH block_seed AS (
+    SELECT
+        dps.daily_plan_session_id,
+        dp.plan_date,
+        dpt.display_order,
+        block.block_order,
+        CASE
+            WHEN dpt.display_order = 1 AND block.block_order = 1 THEN '09:00'
+            WHEN dpt.display_order = 1 AND block.block_order = 2 THEN '09:30'
+            WHEN dpt.display_order = 2 AND block.block_order = 1 THEN '15:00'
+            ELSE '15:30'
+        END AS start_time,
+        CASE
+            WHEN dpt.display_order = 1 AND block.block_order = 1 THEN '09:30'
+            WHEN dpt.display_order = 1 AND block.block_order = 2 THEN '10:00'
+            WHEN dpt.display_order = 2 AND block.block_order = 1 THEN '15:30'
+            ELSE '16:00'
+        END AS end_time
+    FROM daily_plan_session dps
+    JOIN daily_plan_task dpt ON dpt.daily_plan_task_id = dps.daily_plan_task_id
+    JOIN daily_plan dp ON dp.daily_plan_id = dpt.daily_plan_id
+    CROSS JOIN (VALUES (1), (2)) AS block(block_order)
+    WHERE dp.user_id = 1
+      AND dp.plan_date BETWEEN CURRENT_DATE - INTERVAL '20 days' AND CURRENT_DATE
+)
+INSERT INTO daily_plan_session_block (
+    daily_plan_session_id,
+    block_order,
+    start_time,
+    end_time,
+    duration_minutes,
+    created_at,
+    updated_at
+)
+SELECT
+    bs.daily_plan_session_id,
+    bs.block_order,
+    bs.start_time,
+    bs.end_time,
+    30,
+    bs.plan_date + TIME '08:45',
+    bs.plan_date + TIME '08:45'
+FROM block_seed bs;
+
+WITH completed_plan_sessions AS (
+    SELECT
+        dps.daily_plan_session_id,
+        dpt.daily_plan_task_id,
+        dps.task_id,
+        dps.user_id,
+        dp.plan_date,
+        dpt.display_order,
+        t.total_time,
+        t.ai_estimated
+    FROM daily_plan_session dps
+    JOIN daily_plan_task dpt ON dpt.daily_plan_task_id = dps.daily_plan_task_id
+    JOIN daily_plan dp ON dp.daily_plan_id = dpt.daily_plan_id
+    JOIN task t ON t.task_id = dps.task_id
+    WHERE dp.user_id = 1
+      AND dp.plan_date BETWEEN CURRENT_DATE - INTERVAL '20 days' AND CURRENT_DATE
+      AND t.status = 'COMPLETED'
+), inserted_rolling_sessions AS (
+    INSERT INTO focus_session (
+        task_id,
+        user_id,
+        daily_plan_task_id,
+        source,
+        session_status,
+        started_at,
+        ended_at,
+        actual_minutes,
+        created_at,
+        daily_plan_session_id,
+        planned_minutes,
+        ai_remaining_before
+    )
+    SELECT
+        cps.task_id,
+        cps.user_id,
+        cps.daily_plan_task_id,
+        'SESSION',
+        'ENDED',
+        cps.plan_date + CASE WHEN cps.display_order = 1 THEN TIME '09:00' ELSE TIME '15:00' END,
+        cps.plan_date + CASE WHEN cps.display_order = 1 THEN TIME '10:25' ELSE TIME '16:05' END,
+        cps.total_time,
+        cps.plan_date + CASE WHEN cps.display_order = 1 THEN TIME '09:00' ELSE TIME '15:00' END,
+        cps.daily_plan_session_id,
+        60,
+        cps.ai_estimated
+    FROM completed_plan_sessions cps
+    RETURNING session_id, task_id, started_at, actual_minutes, ai_remaining_before
+)
+INSERT INTO session_feedback (
+    session_id,
+    progress_level,
+    progress_percent_after,
+    focus_level,
+    ai_remaining_before,
+    ai_remaining_after,
+    note,
+    created_at,
+    previous_ai_total_minutes,
+    updated_ai_total_minutes,
+    progress_based_remaining_minutes,
+    normalized_remaining_minutes,
+    blending_weight,
+    focus_weight
+)
+SELECT
+    irs.session_id,
+    5,
+    100,
+    CASE
+        WHEN EXTRACT(ISODOW FROM irs.started_at) IN (2, 4, 6) THEN 'VERY_HIGH'
+        WHEN EXTRACT(ISODOW FROM irs.started_at) IN (1, 3) THEN 'HIGH'
+        ELSE 'MEDIUM'
+    END,
+    irs.ai_remaining_before,
+    0,
+    '최근 3주 데모 seed 데이터',
+    irs.started_at + (irs.actual_minutes || ' minutes')::interval,
+    irs.ai_remaining_before,
+    irs.ai_remaining_before,
+    0,
+    0,
+    0.600000,
+    CASE
+        WHEN EXTRACT(ISODOW FROM irs.started_at) IN (2, 4, 6) THEN 1.150000
+        WHEN EXTRACT(ISODOW FROM irs.started_at) IN (1, 3) THEN 1.080000
+        ELSE 1.000000
+    END
+FROM inserted_rolling_sessions irs;
+
+-- Extra active tasks for task list, reminders, and recommendation demos.
+WITH active_task_seed AS (
+    SELECT *
+    FROM (
+        VALUES
+            ('알고리즘', 'QUANTITY_BASED', '데모 활성 - 알고리즘 모의고사 2회 풀이', '이번 주 알고리즘 대비용 활성 태스크', CURRENT_DATE + TIME '23:30', 'HIGH', 'HIGH', 120, 180, 'IN_PROGRESS', 35, 55, CURRENT_DATE + TIME '09:15'),
+            ('캡스톤', 'SATISFACTION_BASED', '데모 활성 - 캡스톤 최종 발표 리허설', '오늘 보여줄 발표 흐름 점검', CURRENT_DATE + TIME '18:00', 'HIGH', 'MEDIUM', 90, 135, 'PENDING', 0, 0, CURRENT_DATE + TIME '09:20'),
+            ('보안', 'QUANTITY_BASED', '데모 활성 - 웹 보안 체크리스트 정리', '마감 임박 리마인더 확인용', CURRENT_DATE + INTERVAL '1 day' + TIME '21:00', 'MEDIUM', 'MEDIUM', 75, 105, 'PENDING', 0, 0, CURRENT_DATE + TIME '09:25'),
+            ('운영체제', 'SATISFACTION_BASED', '데모 활성 - 운영체제 기말 개념 복습', '난이도별 보정 화면 확인용', CURRENT_DATE + INTERVAL '2 days' + TIME '17:00', 'HIGH', 'HIGH', 150, 220, 'IN_PROGRESS', 40, 70, CURRENT_DATE + TIME '09:30'),
+            ('멀코컴', 'QUANTITY_BASED', '데모 활성 - 멀코컴 과제 3 구현', '추천/정렬 목록 확인용', CURRENT_DATE + INTERVAL '3 days' + TIME '23:00', 'HIGH', 'MEDIUM', 180, 260, 'PENDING', 0, 0, CURRENT_DATE + TIME '09:35'),
+            ('알고리즘', 'QUANTITY_BASED', '데모 활성 - DP 심화 오답 노트', '폴더별 활성 태스크 확인용', CURRENT_DATE + INTERVAL '5 days' + TIME '23:59', 'MEDIUM', 'HIGH', 100, 150, 'PENDING', 0, 0, CURRENT_DATE + TIME '09:40'),
+            ('캡스톤', 'SATISFACTION_BASED', '데모 활성 - 사용자 테스트 피드백 반영', '진행 중 태스크 카드 확인용', CURRENT_DATE + INTERVAL '7 days' + TIME '20:00', 'MEDIUM', 'LOW', 80, 100, 'IN_PROGRESS', 25, 35, CURRENT_DATE + TIME '09:45'),
+            ('보안', 'QUANTITY_BASED', '데모 활성 - 악성코드 분석 실습 보강', '기한 초과 리마인더 확인용', CURRENT_DATE - INTERVAL '1 day' + TIME '22:00', 'HIGH', 'MEDIUM', 90, 130, 'PENDING', 0, 0, CURRENT_DATE + TIME '09:50')
+    ) AS v(folder_name, type_code, name, description, due_date, importance, difficulty, user_estimated, ai_estimated, status, progress_percent, total_time, created_at)
+)
+INSERT INTO task (
+    user_id,
+    folder_id,
+    task_type_id,
+    name,
+    description,
+    due_date,
+    importance,
+    status,
+    difficulty,
+    correction_enabled,
+    user_estimated,
+    ai_estimated,
+    final_estimated,
+    remaining_min,
+    progress_percent,
+    total_time,
+    completed_at,
+    last_notified_at,
+    created_at,
+    updated_at,
+    last_ai_estimated_at,
+    deleted_at
+)
+SELECT
+    1,
+    f.folder_id,
+    tt.task_type_id,
+    ats.name,
+    ats.description,
+    ats.due_date,
+    ats.importance,
+    ats.status,
+    ats.difficulty,
+    TRUE,
+    ats.user_estimated,
+    ats.ai_estimated,
+    ats.ai_estimated,
+    GREATEST(0, ats.ai_estimated - ats.total_time),
+    ats.progress_percent,
+    ats.total_time,
+    NULL,
+    NULL,
+    ats.created_at,
+    ats.created_at,
+    ats.created_at,
+    NULL
+FROM active_task_seed ats
+JOIN folder f ON f.user_id = 1 AND f.name = ats.folder_name
+JOIN task_type tt ON tt.code = ats.type_code;
 
 COMMIT;
