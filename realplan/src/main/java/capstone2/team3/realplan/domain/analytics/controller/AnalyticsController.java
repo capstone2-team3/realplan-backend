@@ -1,6 +1,7 @@
 package capstone2.team3.realplan.domain.analytics.controller;
 
 import capstone2.team3.realplan.domain.analytics.dto.DailyStudyTimeResponse;
+import capstone2.team3.realplan.domain.analytics.dto.DifficultyCorrectionResponse;
 import capstone2.team3.realplan.domain.analytics.dto.FocusByHourResponse;
 import capstone2.team3.realplan.domain.analytics.dto.TypeStatsResponse;
 import capstone2.team3.realplan.domain.analytics.dto.WeeklyAnalyticsResponse;
@@ -52,5 +53,12 @@ public class AnalyticsController {
     public ResponseEntity<ApiResponse<TypeStatsResponse>> getTypeStats(
             @AuthenticationPrincipal AuthUser authUser) {
         return ResponseEntity.ok(ApiResponse.ok(analyticsService.getTypeStats(authUser.getUserId())));
+    }
+
+    @Operation(summary = "난이도별 계획 오류 보정", description = "UserAiDifficultyResidual 기반 난이도별 계획 오류 보정값을 조회합니다.")
+    @GetMapping("/difficulty-correction")
+    public ResponseEntity<ApiResponse<DifficultyCorrectionResponse>> getDifficultyCorrection(
+            @AuthenticationPrincipal AuthUser authUser) {
+        return ResponseEntity.ok(ApiResponse.ok(analyticsService.getDifficultyCorrection(authUser.getUserId())));
     }
 }

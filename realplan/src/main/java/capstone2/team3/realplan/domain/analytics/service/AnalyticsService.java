@@ -1,15 +1,19 @@
 package capstone2.team3.realplan.domain.analytics.service;
 
 import capstone2.team3.realplan.domain.analytics.dto.DailyStudyTimeResponse;
+import capstone2.team3.realplan.domain.analytics.dto.DifficultyCorrectionResponse;
 import capstone2.team3.realplan.domain.analytics.dto.FocusByHourResponse;
 import capstone2.team3.realplan.domain.analytics.dto.TypeStatsResponse;
 import capstone2.team3.realplan.domain.analytics.dto.WeeklyAnalyticsResponse;
+import capstone2.team3.realplan.domain.ai.entity.UserAiDifficultyResidual;
+import capstone2.team3.realplan.domain.ai.repository.UserAiDifficultyResidualRepository;
 import capstone2.team3.realplan.domain.session.entity.FocusSession;
 import capstone2.team3.realplan.domain.session.entity.SessionFeedback;
 import capstone2.team3.realplan.domain.session.entity.UserTaskTypeProfile;
 import capstone2.team3.realplan.domain.session.repository.FocusSessionRepository;
 import capstone2.team3.realplan.domain.session.repository.SessionFeedbackRepository;
 import capstone2.team3.realplan.domain.session.repository.UserTaskTypeProfileRepository;
+import capstone2.team3.realplan.domain.task.entity.Task;
 import capstone2.team3.realplan.domain.task.repository.TaskRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -23,6 +27,8 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -36,6 +42,7 @@ public class AnalyticsService {
     private final FocusSessionRepository focusSessionRepository;
     private final SessionFeedbackRepository sessionFeedbackRepository;
     private final UserTaskTypeProfileRepository userTaskTypeProfileRepository;
+    private final UserAiDifficultyResidualRepository userAiDifficultyResidualRepository;
     private final TaskRepository taskRepository;
 
     public WeeklyAnalyticsResponse getWeekly(Long userId) {
@@ -125,6 +132,24 @@ public class AnalyticsService {
         return new TypeStatsResponse(items);
     }
 
+    public DifficultyCorrectionResponse getDifficultyCorrection(Long userId) {
+        Map<Task.Difficulty, UserAiDifficultyResidual> residualByDifficulty =
+                userAiDifficultyResidualRepository.findAllByUserUserId(userId)
+                        .stream()
+                        .collect(Collectors.toMap(
+                                UserAiDifficultyResidual::getDifficulty,
+                                Function.identity(),
+                                (left, right) -> left,
+                                () -> new EnumMap<>(Task.Difficulty.class)));
+
+        List<DifficultyCorrectionResponse.DifficultyCorrectionItem> items = Arrays.stream(Task.Difficulty.values())
+                .map(difficulty -> toDifficultyCorrectionItem(
+                        difficulty,
+                        residualByDifficulty.get(difficulty)))
+                .toList();
+        return new DifficultyCorrectionResponse(items);
+    }
+
     private List<FocusSession> findEndedSessions(Long userId, LocalDateTime start, LocalDateTime end) {
         return focusSessionRepository.findAllByUserUserIdAndStartedAtGreaterThanEqualAndStartedAtLessThanAndSessionStatus(
                 userId, start, end, FocusSession.SessionStatus.ENDED);
@@ -166,6 +191,30 @@ public class AnalyticsService {
                 profile.getBiasCorrectionFactor(),
                 profile.getLastCalculatedAt()
         );
+    }
+
+    private DifficultyCorrectionResponse.DifficultyCorrectionItem toDifficultyCorrectionItem(
+            Task.Difficulty difficulty,
+            UserAiDifficultyResidual residual
+    ) {
+        BigDecimal residualValue = residual != null ? residual.getResidual() : BigDecimal.ZERO;
+        return new DifficultyCorrectionResponse.DifficultyCorrectionItem(
+                difficulty.name(),
+                difficultyLabel(difficulty),
+                residual != null ? residual.getSampleCount() : 0,
+                residualValue,
+                residualValue.multiply(BigDecimal.valueOf(100)).setScale(2, RoundingMode.HALF_UP),
+                residual != null ? residual.getUpdatedAt() : null
+        );
+    }
+
+    private String difficultyLabel(Task.Difficulty difficulty) {
+        return switch (difficulty) {
+            case LOW -> "쉬움";
+            case MEDIUM -> "보통";
+            case HIGH -> "어려움";
+            case UNKNOWN -> "알 수 없음";
+        };
     }
 
     private int focusScore(SessionFeedback.FocusLevel focusLevel) {
