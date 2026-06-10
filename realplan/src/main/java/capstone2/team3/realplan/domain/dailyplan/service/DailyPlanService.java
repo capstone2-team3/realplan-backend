@@ -107,7 +107,9 @@ public class DailyPlanService {
                 LocalDateTime.now().toString(),
                 plan.getAvailableMinutes(),
                 userTimeBandFocusScores(userId),
-                candidates.stream().map(this::toRecommendTaskItem).toList()
+                candidates.stream()
+                        .map(task -> toRecommendTaskItem(userId, plan.getPlanDate(), task))
+                        .toList()
         ));
 
         return toRecommendResponse(aiResponse);
@@ -201,7 +203,9 @@ public class DailyPlanService {
         AiTaskDecomposeResponse decomposeResponse = aiClient.decomposeTasks(new AiTaskDecomposeRequest(
                 30,
                 maxContinuousMinutes,
-                tasks.stream().map(this::toDecomposeTaskItem).toList()
+                tasks.stream()
+                        .map(task -> toDecomposeTaskItem(userId, plan.getPlanDate(), task))
+                        .toList()
         ));
 
         Map<Long, DailyPlanTask> planTasksByTaskId = new HashMap<>();
@@ -554,7 +558,7 @@ public class DailyPlanService {
         };
     }
 
-    private AiTaskRecommendRequest.TaskItem toRecommendTaskItem(Task task) {
+    private AiTaskRecommendRequest.TaskItem toRecommendTaskItem(Long userId, LocalDate targetDate, Task task) {
         return new AiTaskRecommendRequest.TaskItem(
                 task.getTaskId(),
                 task.getName(),
@@ -564,7 +568,7 @@ public class DailyPlanService {
                 task.getDifficulty().name(),
                 task.getStatus().name(),
                 resolveTargetMinutes(task),
-                0
+                resolveActiveScheduledMinutes(userId, targetDate, task)
         );
     }
 
@@ -595,7 +599,7 @@ public class DailyPlanService {
         );
     }
 
-    private AiTaskDecomposeRequest.TaskItem toDecomposeTaskItem(Task task) {
+    private AiTaskDecomposeRequest.TaskItem toDecomposeTaskItem(Long userId, LocalDate targetDate, Task task) {
         return new AiTaskDecomposeRequest.TaskItem(
                 task.getTaskId(),
                 task.getName(),
@@ -603,8 +607,22 @@ public class DailyPlanService {
                 task.getTaskType().getCode(),
                 task.getDifficulty().name(),
                 resolveTargetMinutes(task),
-                0
+                resolveActiveScheduledMinutes(userId, targetDate, task)
         );
+    }
+
+    private int resolveActiveScheduledMinutes(Long userId, LocalDate targetDate, Task task) {
+        if (targetDate == null || !targetDate.isAfter(LocalDate.now())) {
+            return 0;
+        }
+        long scheduledSlots = dailyPlanSlotRepository.countScheduledSlotsBeforeDate(
+                userId,
+                task.getTaskId(),
+                LocalDate.now(),
+                targetDate,
+                List.of(DailyPlan.PlanStatus.CONFIRMED)
+        );
+        return Math.toIntExact(scheduledSlots * 30);
     }
 
     private DailyPlanSession.RequiredFocusLevel parseRequiredFocusLevel(String value) {
