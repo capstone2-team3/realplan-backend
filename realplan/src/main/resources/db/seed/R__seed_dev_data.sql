@@ -103,14 +103,14 @@ WHERE EXISTS (SELECT 1 FROM users u WHERE u.user_id = 1)
 -- 3) User-level AI coefficients calculated from the 36 completed demo tasks.
 --    user_global is mean(log(actual/user_estimated)) - demo_v1.system_global_prior.
 INSERT INTO user_ai_profile (user_id, user_global, completed_count, created_at, updated_at)
-SELECT u.user_id, 0.60562, 36, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP FROM users u WHERE u.user_id = 1;
+SELECT u.user_id, 0.60396, 36, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP FROM users u WHERE u.user_id = 1;
 
 INSERT INTO user_ai_type_residual (user_id, task_type_id, residual, sample_count, created_at, updated_at)
 SELECT u.user_id, tt.task_type_id, v.residual, v.sample_count, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 FROM users u CROSS JOIN (VALUES
     ('TIME_BASED', -0.00482, 6),
-    ('QUANTITY_BASED', 0.04852, 22),
-    ('SATISFACTION_BASED', -0.11380, 8)
+    ('QUANTITY_BASED', -0.02039, 22),
+    ('SATISFACTION_BASED', -0.05857, 8)
 ) AS v(type_code, residual, sample_count)
 JOIN task_type tt ON tt.code = v.type_code
 WHERE u.user_id = 1;
@@ -118,10 +118,10 @@ WHERE u.user_id = 1;
 INSERT INTO user_ai_difficulty_residual (user_id, difficulty, residual, sample_count, created_at, updated_at)
 SELECT u.user_id, v.difficulty, v.residual, v.sample_count, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 FROM users u CROSS JOIN (VALUES
-    ('UNKNOWN', 0.02375, 5),
-    ('MEDIUM', 0.07261, 14),
-    ('LOW', -0.12573, 6),
-    ('HIGH', 0.03269, 5)
+    ('UNKNOWN', 0.02610, 7),
+    ('MEDIUM', 0.05815, 16),
+    ('LOW', -0.12139, 6),
+    ('HIGH', -0.04112, 1)
 ) AS v(difficulty, residual, sample_count)
 WHERE u.user_id = 1;
 
@@ -144,11 +144,11 @@ FROM users u
 CROSS JOIN (
     VALUES
         ('기본 폴더', 0.000000, 0),
-        ('알고리즘', 0.07239, 8),
-        ('캡스톤', -0.09040, 5),
-        ('보안', -0.08907, 7),
-        ('운영체제', 0.05116, 3),
-        ('멀코컴', 0.10495, 7)
+        ('알고리즘', 0.06950, 8),
+        ('캡스톤', -0.07255, 5),
+        ('보안', -0.12944, 7),
+        ('운영체제', 0.06951, 3),
+        ('멀코컴', 0.06486, 7)
 ) AS v(folder_name, residual, sample_count)
 JOIN folder f
   ON f.user_id = u.user_id
@@ -988,7 +988,7 @@ WHERE user_id = 1
   AND task_type_id = (SELECT task_type_id FROM task_type WHERE code = 'TIME_BASED');
 
 UPDATE user_ai_profile
-SET user_global = 0.60562,
+SET user_global = 0.60396,
     completed_count = 36,
     updated_at = CURRENT_TIMESTAMP
 WHERE user_id = 1;
