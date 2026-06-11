@@ -415,6 +415,10 @@ public class DailyPlanService {
 
         return dailyPlanTaskRepository
                 .findByDailyPlanDailyPlanIdAndTaskTaskId(plan.getDailyPlanId(), taskId)
+                .map(planTask -> {
+                    planTask.select();
+                    return planTask;
+                })
                 .orElseGet(() -> {
                     int nextOrder = dailyPlanTaskRepository
                             .findAllByDailyPlanDailyPlanIdOrderByDisplayOrderAsc(plan.getDailyPlanId())
@@ -435,11 +439,14 @@ public class DailyPlanService {
                 .filter(dpt -> dpt.getSourceType() == DailyPlanTask.SourceType.AI)
                 .forEach(dpt -> {
                     dailyPlanSessionRepository.deleteAllByDailyPlanTaskDailyPlanTaskId(dpt.getDailyPlanTaskId());
-                    dailyPlanSessionRepository.flush();
-                    if (focusSessionRepository.countByDailyPlanTaskDailyPlanTaskId(dpt.getDailyPlanTaskId()) == 0) {
+                    if (!focusSessionRepository.existsByDailyPlanTaskDailyPlanTaskId(dpt.getDailyPlanTaskId())) {
                         dailyPlanTaskRepository.delete(dpt);
+                    } else {
+                        dpt.deselect();
+                        dpt.updatePlannedMinutes(0);
                     }
                 });
+        dailyPlanSessionRepository.flush();
         dailyPlanTaskRepository.flush();
     }
 
