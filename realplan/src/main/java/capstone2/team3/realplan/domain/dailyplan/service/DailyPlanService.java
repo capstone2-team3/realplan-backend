@@ -433,7 +433,13 @@ public class DailyPlanService {
         dailyPlanTaskRepository.findAllByDailyPlanDailyPlanIdOrderByDisplayOrderAsc(planId)
                 .stream()
                 .filter(dpt -> dpt.getSourceType() == DailyPlanTask.SourceType.AI)
-                .forEach(dailyPlanTaskRepository::delete);
+                .forEach(dpt -> {
+                    dailyPlanSessionRepository.deleteAllByDailyPlanTaskDailyPlanTaskId(dpt.getDailyPlanTaskId());
+                    dailyPlanSessionRepository.flush();
+                    if (focusSessionRepository.countByDailyPlanTaskDailyPlanTaskId(dpt.getDailyPlanTaskId()) == 0) {
+                        dailyPlanTaskRepository.delete(dpt);
+                    }
+                });
         dailyPlanTaskRepository.flush();
     }
 

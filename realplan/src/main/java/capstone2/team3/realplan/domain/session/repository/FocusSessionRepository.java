@@ -27,4 +27,6 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, Long
             LocalDateTime start,
             LocalDateTime end,
             FocusSession.SessionStatus sessionStatus);
+
+    long countByDailyPlanTaskDailyPlanTaskId(Long dailyPlanTaskId);
 }
