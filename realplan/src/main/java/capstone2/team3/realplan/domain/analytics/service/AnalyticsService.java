@@ -6,7 +6,11 @@ import capstone2.team3.realplan.domain.analytics.dto.FocusByHourResponse;
 import capstone2.team3.realplan.domain.analytics.dto.TypeStatsResponse;
 import capstone2.team3.realplan.domain.analytics.dto.WeeklyAnalyticsResponse;
 import capstone2.team3.realplan.domain.ai.entity.UserAiDifficultyResidual;
+import capstone2.team3.realplan.domain.ai.entity.UserAiProfile;
+import capstone2.team3.realplan.domain.ai.entity.UserAiTypeResidual;
 import capstone2.team3.realplan.domain.ai.repository.UserAiDifficultyResidualRepository;
+import capstone2.team3.realplan.domain.ai.repository.UserAiProfileRepository;
+import capstone2.team3.realplan.domain.ai.repository.UserAiTypeResidualRepository;
 import capstone2.team3.realplan.domain.session.entity.FocusSession;
 import capstone2.team3.realplan.domain.session.entity.SessionFeedback;
 import capstone2.team3.realplan.domain.session.entity.UserTaskTypeProfile;
@@ -15,6 +19,8 @@ import capstone2.team3.realplan.domain.session.repository.SessionFeedbackReposit
 import capstone2.team3.realplan.domain.session.repository.UserTaskTypeProfileRepository;
 import capstone2.team3.realplan.domain.task.entity.Task;
 import capstone2.team3.realplan.domain.task.repository.TaskRepository;
+import capstone2.team3.realplan.domain.tasktype.entity.TaskType;
+import capstone2.team3.realplan.domain.tasktype.repository.TaskTypeRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,6 +34,7 @@ import java.time.LocalTime;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -42,7 +49,10 @@ public class AnalyticsService {
     private final FocusSessionRepository focusSessionRepository;
     private final SessionFeedbackRepository sessionFeedbackRepository;
     private final UserTaskTypeProfileRepository userTaskTypeProfileRepository;
+    private final UserAiProfileRepository userAiProfileRepository;
+    private final UserAiTypeResidualRepository userAiTypeResidualRepository;
     private final UserAiDifficultyResidualRepository userAiDifficultyResidualRepository;
+    private final TaskTypeRepository taskTypeRepository;
     private final TaskRepository taskRepository;
 
     public WeeklyAnalyticsResponse getWeekly(Long userId) {
@@ -125,14 +135,36 @@ public class AnalyticsService {
     }
 
     public TypeStatsResponse getTypeStats(Long userId) {
-        List<TypeStatsResponse.TypeStatsItem> items = userTaskTypeProfileRepository.findAllByUserUserIdOrderByTaskTypeCodeAsc(userId)
+        BigDecimal userGlobal = findUserGlobal(userId);
+        Map<Long, UserTaskTypeProfile> profileByTaskTypeId =
+                userTaskTypeProfileRepository.findAllByUserUserIdOrderByTaskTypeCodeAsc(userId)
+                        .stream()
+                        .collect(Collectors.toMap(
+                                profile -> profile.getTaskType().getTaskTypeId(),
+                                Function.identity(),
+                                (left, right) -> left));
+        Map<Long, UserAiTypeResidual> residualByTaskTypeId =
+                userAiTypeResidualRepository.findAllByUserUserId(userId)
+                        .stream()
+                        .collect(Collectors.toMap(
+                                residual -> residual.getTaskType().getTaskTypeId(),
+                                Function.identity(),
+                                (left, right) -> left));
+
+        List<TypeStatsResponse.TypeStatsItem> items = taskTypeRepository.findAll()
                 .stream()
-                .map(this::toTypeStatsItem)
+                .sorted(Comparator.comparing(TaskType::getCode))
+                .map(taskType -> toTypeStatsItem(
+                        taskType,
+                        profileByTaskTypeId.get(taskType.getTaskTypeId()),
+                        residualByTaskTypeId.get(taskType.getTaskTypeId()),
+                        userGlobal))
                 .toList();
         return new TypeStatsResponse(items);
     }
 
     public DifficultyCorrectionResponse getDifficultyCorrection(Long userId) {
+        BigDecimal userGlobal = findUserGlobal(userId);
         Map<Task.Difficulty, UserAiDifficultyResidual> residualByDifficulty =
                 userAiDifficultyResidualRepository.findAllByUserUserId(userId)
                         .stream()
@@ -145,7 +177,8 @@ public class AnalyticsService {
         List<DifficultyCorrectionResponse.DifficultyCorrectionItem> items = Arrays.stream(Task.Difficulty.values())
                 .map(difficulty -> toDifficultyCorrectionItem(
                         difficulty,
-                        residualByDifficulty.get(difficulty)))
+                        residualByDifficulty.get(difficulty),
+                        userGlobal))
                 .toList();
         return new DifficultyCorrectionResponse(items);
     }
@@ -179,33 +212,60 @@ public class AnalyticsService {
                 .collect(Collectors.toMap(feedback -> feedback.getSession().getSessionId(), Function.identity()));
     }
 
-    private TypeStatsResponse.TypeStatsItem toTypeStatsItem(UserTaskTypeProfile profile) {
+    private TypeStatsResponse.TypeStatsItem toTypeStatsItem(
+            TaskType taskType,
+            UserTaskTypeProfile profile,
+            UserAiTypeResidual residual,
+            BigDecimal userGlobal
+    ) {
+        BigDecimal residualValue = residual != null ? residual.getResidual() : BigDecimal.ZERO;
+        BigDecimal finalCorrectionFactor = exp(userGlobal.add(residualValue));
         return new TypeStatsResponse.TypeStatsItem(
-                profile.getTaskType().getTaskTypeId(),
-                profile.getTaskType().getCode(),
-                profile.getTaskType().getNameKo(),
-                profile.getSampleCount(),
-                profile.getSumPlannedMinutes(),
-                profile.getSumActualMinutes(),
-                profile.getErrorRatio(),
-                profile.getBiasCorrectionFactor(),
-                profile.getLastCalculatedAt()
+                taskType.getTaskTypeId(),
+                taskType.getCode(),
+                taskType.getNameKo(),
+                profile != null ? profile.getSampleCount() : 0,
+                profile != null ? profile.getSumPlannedMinutes() : 0,
+                profile != null ? profile.getSumActualMinutes() : 0,
+                profile != null ? profile.getErrorRatio() : BigDecimal.ZERO,
+                profile != null ? profile.getBiasCorrectionFactor() : BigDecimal.ONE,
+                userGlobal,
+                residualValue,
+                finalCorrectionFactor,
+                finalCorrectionFactor.subtract(BigDecimal.ONE).multiply(BigDecimal.valueOf(100)).setScale(2, RoundingMode.HALF_UP),
+                profile != null ? profile.getLastCalculatedAt() : null
         );
     }
 
     private DifficultyCorrectionResponse.DifficultyCorrectionItem toDifficultyCorrectionItem(
             Task.Difficulty difficulty,
-            UserAiDifficultyResidual residual
+            UserAiDifficultyResidual residual,
+            BigDecimal userGlobal
     ) {
         BigDecimal residualValue = residual != null ? residual.getResidual() : BigDecimal.ZERO;
+        BigDecimal finalCorrectionFactor = exp(userGlobal.add(residualValue));
         return new DifficultyCorrectionResponse.DifficultyCorrectionItem(
                 difficulty.name(),
                 difficultyLabel(difficulty),
                 residual != null ? residual.getSampleCount() : 0,
+                userGlobal,
                 residualValue,
                 residualValue.multiply(BigDecimal.valueOf(100)).setScale(2, RoundingMode.HALF_UP),
+                finalCorrectionFactor,
+                finalCorrectionFactor.subtract(BigDecimal.ONE).multiply(BigDecimal.valueOf(100)).setScale(2, RoundingMode.HALF_UP),
                 residual != null ? residual.getUpdatedAt() : null
         );
+    }
+
+    private BigDecimal findUserGlobal(Long userId) {
+        return userAiProfileRepository.findByUserUserId(userId)
+                .map(UserAiProfile::getUserGlobal)
+                .orElse(BigDecimal.ZERO);
+    }
+
+    private BigDecimal exp(BigDecimal logValue) {
+        return BigDecimal.valueOf(Math.exp(logValue.doubleValue()))
+                .setScale(6, RoundingMode.HALF_UP);
     }
 
     private String difficultyLabel(Task.Difficulty difficulty) {

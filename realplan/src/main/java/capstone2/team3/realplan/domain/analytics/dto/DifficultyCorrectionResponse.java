@@ -19,8 +19,11 @@ public class DifficultyCorrectionResponse {
         private String difficulty;
         private String difficultyLabel;
         private int sampleCount;
+        private BigDecimal userGlobal;
         private BigDecimal residual;
         private BigDecimal correctionPercent;
+        private BigDecimal finalCorrectionFactor;
+        private BigDecimal finalCorrectionPercent;
         private LocalDateTime updatedAt;
     }
 }
