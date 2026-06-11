@@ -24,6 +24,10 @@ public class TypeStatsResponse {
         private int actualMinutes;
         private BigDecimal errorRatio;
         private BigDecimal biasCorrectionFactor;
+        private BigDecimal userGlobal;
+        private BigDecimal residual;
+        private BigDecimal finalCorrectionFactor;
+        private BigDecimal finalCorrectionPercent;
         private LocalDateTime lastCalculatedAt;
     }
 }
