@@ -193,7 +193,8 @@ public class DailyPlanService {
 
         clearAiAssignments(planId);
 
-        List<Task> tasks = resolveAutoAssignTasks(userId, request);
+        AutoAssignTaskSelection selection = resolveAutoAssignTaskSelection(userId, plan, request);
+        List<Task> tasks = selection.tasks();
         int maxContinuousMinutes = request.getMaxContinuousSchedulableMinutes() != null
                 ? request.getMaxContinuousSchedulableMinutes() : 90;
         if (maxContinuousMinutes % 30 != 0) {
@@ -246,7 +247,9 @@ public class DailyPlanService {
                 maxContinuousMinutes,
                 toSchedulableTimeBlocks(availableSlots),
                 List.of(),
-                tasks.stream().map(task -> toAutoPlaceTaskItem(task, plan.getPlanDate())).toList(),
+                tasks.stream()
+                        .map(task -> toAutoPlaceTaskItem(task, plan.getPlanDate(), selection.recommendScores()))
+                        .toList(),
                 sessions.stream().map(this::toAutoPlaceTaskSession).toList()
         ));
 
@@ -450,31 +453,58 @@ public class DailyPlanService {
         dailyPlanTaskRepository.flush();
     }
 
-    private List<Task> resolveAutoAssignTasks(Long userId, DailyPlanAutoAssignRequest request) {
+    private AutoAssignTaskSelection resolveAutoAssignTaskSelection(
+            Long userId,
+            DailyPlan plan,
+            DailyPlanAutoAssignRequest request
+    ) {
+        List<Task> candidates = taskRepository.findAllByUserUserIdAndDeletedAtIsNullOrderByCreatedAtDesc(userId)
+                .stream()
+                .filter(task -> task.getStatus() != Task.Status.COMPLETED)
+                .filter(task -> resolveTargetMinutes(task) > 0)
+                .toList();
+
+        AiTaskRecommendResponse recommendation = aiClient.recommendTasks(new AiTaskRecommendRequest(
+                plan.getPlanDate().toString(),
+                LocalDateTime.now().toString(),
+                plan.getAvailableMinutes(),
+                userTimeBandFocusScores(userId),
+                candidates.stream()
+                        .map(task -> toRecommendTaskItem(userId, plan.getPlanDate(), task))
+                        .toList()
+        ));
+
+        Map<Long, Double> recommendScores = recommendation.recommendations().stream()
+                .collect(Collectors.toMap(
+                        AiTaskRecommendResponse.RecommendationItem::taskId,
+                        AiTaskRecommendResponse.RecommendationItem::recommendScore,
+                        (left, right) -> left
+                ));
+
+        List<Task> tasks;
         if (request.getTaskIds() != null && !request.getTaskIds().isEmpty()) {
-            return request.getTaskIds().stream()
+            tasks = request.getTaskIds().stream()
                     .distinct()
                     .map(taskId -> taskRepository.findByTaskIdAndUserUserIdAndDeletedAtIsNull(taskId, userId)
                             .orElseThrow(() -> new BusinessException(ErrorCode.TASK_NOT_FOUND)))
                     .filter(task -> task.getStatus() != Task.Status.COMPLETED)
+                    .filter(task -> resolveTargetMinutes(task) > 0)
+                    .toList();
+        } else {
+            int maxTasks = request.getMaxTasks() != null ? request.getMaxTasks() : 4;
+            Map<Long, Task> candidateById = candidates.stream()
+                    .collect(Collectors.toMap(Task::getTaskId, Function.identity()));
+            tasks = recommendation.recommendations().stream()
+                    .limit(maxTasks)
+                    .map(item -> candidateById.get(item.taskId()))
+                    .filter(task -> task != null)
                     .toList();
         }
 
-        int maxTasks = request.getMaxTasks() != null ? request.getMaxTasks() : 4;
-        return taskRepository.findAllByUserUserIdAndDeletedAtIsNullOrderByCreatedAtDesc(userId)
-                .stream()
-                .filter(task -> task.getStatus() != Task.Status.COMPLETED)
-                .filter(task -> resolveTargetMinutes(task) > 0)
-                .sorted(Comparator
-                        .comparing((Task task) -> task.getDueDate() == null)
-                        .thenComparing(Task::getDueDate, Comparator.nullsLast(Comparator.naturalOrder()))
-                        .thenComparing(task -> switch (task.getImportance()) {
-                            case HIGH -> 0;
-                            case MEDIUM -> 1;
-                            case LOW -> 2;
-                        }))
-                .limit(maxTasks)
-                .toList();
+        if (tasks.isEmpty()) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT);
+        }
+        return new AutoAssignTaskSelection(tasks, recommendScores);
     }
 
     private int resolveTargetMinutes(Task task) {
@@ -679,13 +709,17 @@ public class DailyPlanService {
         return blocks;
     }
 
-    private AiScheduleAutoPlaceRequest.TaskItem toAutoPlaceTaskItem(Task task, LocalDate planDate) {
+    private AiScheduleAutoPlaceRequest.TaskItem toAutoPlaceTaskItem(
+            Task task,
+            LocalDate planDate,
+            Map<Long, Double> recommendScores
+    ) {
         boolean isDueToday = task.getDueDate() != null
                 && task.getDueDate().toLocalDate().equals(planDate);
         return new AiScheduleAutoPlaceRequest.TaskItem(
                 task.getTaskId(),
                 isDueToday,
-                importanceScore(task.getImportance()),
+                recommendScores.getOrDefault(task.getTaskId(), (double) importanceScore(task.getImportance())),
                 resolveTargetMinutes(task),
                 task.getDifficulty().name()
         );
@@ -706,6 +740,12 @@ public class DailyPlanService {
             case MEDIUM -> 60;
             case LOW -> 30;
         };
+    }
+
+    private record AutoAssignTaskSelection(
+            List<Task> tasks,
+            Map<Long, Double> recommendScores
+    ) {
     }
 
     private void saveFallbackDailyPlanSession(DailyPlanTask planTask, Task task, User user,
