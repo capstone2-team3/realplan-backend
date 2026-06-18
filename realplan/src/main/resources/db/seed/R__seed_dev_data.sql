@@ -51,9 +51,9 @@ SELECT 'demo_v1', TRUE, 0.444700,
 WHERE NOT EXISTS (SELECT 1 FROM ai_system_prior WHERE version = 'demo_v1');
 UPDATE ai_system_prior
 SET is_active = TRUE,
-    system_global_prior = 0.444700,
-    system_type_effect = '{"TIME_BASED":0.0,"QUANTITY_BASED":-0.071,"SATISFACTION_BASED":0.262}',
-    system_difficulty_effect = '{"LOW":-0.050,"MEDIUM":-0.022,"HIGH":-0.031,"UNKNOWN":0.204}',
+    system_global_prior = 0.000000,
+    system_type_effect = '{"TIME_BASED":0.0,"QUANTITY_BASED":0.0,"SATISFACTION_BASED":0.0}',
+    system_difficulty_effect = '{"LOW":0.0,"MEDIUM":0.0,"HIGH":0.0,"UNKNOWN":0.0}',
     updated_at = CURRENT_TIMESTAMP
 WHERE version = 'demo_v1';
 UPDATE ai_system_prior SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP WHERE version <> 'demo_v1';
